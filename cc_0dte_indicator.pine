@@ -1,0 +1,244 @@
+//@version=6
+// Chart Commander 0DTE — day-trading signal indicator
+// Built for: SPY, QQQ, IWM, AAPL, MSFT, NVDA, GOOGL, AMZN, META, TSLA
+// Use on 5m or 15m charts, regular session (ET). Educational tool, not financial advice.
+indicator("Chart Commander 0DTE", shorttitle = "CC-0DTE", overlay = true, max_labels_count = 500)
+
+// ───────── Inputs ─────────
+grpF     = "Direction filter"
+idxSym   = input.symbol("NASDAQ:QQQ", "Market index (use AMEX:SPY for SPY/IWM)", group = grpF)
+useIdx   = input.bool(true, "Index must agree (above/below its VWAP & 50 EMA)", group = grpF)
+useStack = input.bool(true, "Require EMA stack 9 > 21 > 50 (or reverse)", group = grpF)
+useStoch = input.bool(false, "Require Stochastic confirmation", group = grpF)
+volMult  = input.float(1.5, "Volume spike = x times 20-bar avg", minval = 1.0, step = 0.1, group = grpF)
+
+grpS  = "Setups"
+sVwap = input.bool(true, "9 EMA x VWAP cross", group = grpS)
+sX    = input.bool(true, "9 x 21 EMA cross (with 50 trend)", group = grpS)
+sBrk  = input.bool(true, "Volume breakout of OR / prior-day high-low", group = grpS)
+sORR  = input.bool(true, "Opening range reversal (fake-out)", group = grpS)
+sWick = input.bool(true, "Wick rejection at key level (ARC / Box)", group = grpS)
+
+grpR     = "Risk & exits"
+t1R      = input.float(1.0, "Target 1 (R multiple) - take half, stop to breakeven", step = 0.25, group = grpR)
+t2R      = input.float(2.0, "Target 2 (R multiple) - full exit", step = 0.25, group = grpR)
+swingLen = input.int(5, "Stop = swing low/high of last N bars", minval = 2, group = grpR)
+orAtrPct = input.float(20, "Opening range must be >= % of daily ATR", group = grpR)
+vwapExit = input.bool(true, "Exit on close back across VWAP", group = grpR)
+
+tz = "America/New_York"
+
+// ───────── Core lines ─────────
+vwap = ta.vwap(hlc3)
+e9   = ta.ema(close, 9)
+e21  = ta.ema(close, 21)
+e50  = ta.ema(close, 50)
+
+volAvg = ta.sma(volume, 20)
+volOK  = volume > volAvg * volMult
+
+k = ta.sma(ta.stoch(close, high, low, 14), 3)
+d = ta.sma(k, 3)
+stochLongOK  = not useStoch or (k > d and ta.lowest(k, 5) < 20)
+stochShortOK = not useStoch or (k < d and ta.highest(k, 5) > 80)
+
+// Prior day high/low + daily ATR (non-repainting)
+[pdh, pdl, dAtr] = request.security(syminfo.tickerid, "D", [high[1], low[1], ta.atr(14)[1]], lookahead = barmerge.lookahead_on)
+
+// Index direction
+[idxBull, idxBear] = request.security(idxSym, timeframe.period, [close > ta.vwap(hlc3) and close > ta.ema(close, 50), close < ta.vwap(hlc3) and close < ta.ema(close, 50)])
+idxLongOK  = not useIdx or idxBull
+idxShortOK = not useIdx or idxBear
+
+// ───────── Sessions ─────────
+newDay   = ta.change(time("D")) != 0
+inOR     = not na(time(timeframe.period, "0930-0945", tz))
+canEnter = not na(time(timeframe.period, "0945-1430", tz))
+flatTime = not na(time(timeframe.period, "1530-1600", tz))
+
+var float orH = na
+var float orL = na
+if newDay
+    orH := na
+    orL := na
+if inOR
+    orH := na(orH) ? high : math.max(orH, high)
+    orL := na(orL) ? low : math.min(orL, low)
+orReady = not inOR and not na(orH)
+orValid = orReady and (orH - orL) >= dAtr * orAtrPct / 100
+
+// ───────── Trend filter ─────────
+bullTrend = close > vwap and close > e50 and (not useStack or (e9 > e21 and e21 > e50)) and idxLongOK
+bearTrend = close < vwap and close < e50 and (not useStack or (e9 < e21 and e21 < e50)) and idxShortOK
+
+// ───────── Setups ─────────
+// 1) 9 EMA x VWAP: cross, then a later candle closes beyond the cross candle's high/low
+upX   = ta.crossover(e9, vwap)
+dnX   = ta.crossunder(e9, vwap)
+upXHi = ta.valuewhen(upX, high, 0)
+dnXLo = ta.valuewhen(dnX, low, 0)
+bsUp  = ta.barssince(upX)
+bsDn  = ta.barssince(dnX)
+vwapLong  = sVwap and bsUp >= 1 and bsUp <= 3 and close > upXHi and e9 > vwap
+vwapShort = sVwap and bsDn >= 1 and bsDn <= 3 and close < dnXLo and e9 < vwap
+
+// 2) 9 x 21 cross, next candle closes beyond both
+bsX21Up = ta.barssince(ta.crossover(e9, e21))
+bsX21Dn = ta.barssince(ta.crossunder(e9, e21))
+xLong   = sX and bsX21Up <= 1 and close > e9 and close > e21
+xShort  = sX and bsX21Dn <= 1 and close < e9 and close < e21
+
+// 3) Volume breakout of opening range or prior-day level
+brkLong  = sBrk and orReady and volOK and ((ta.crossover(close, orH)) or ta.crossover(close, pdh))
+brkShort = sBrk and orReady and volOK and ((ta.crossunder(close, orL)) or ta.crossunder(close, pdl))
+
+// 4) Opening range reversal: sweep beyond the range, close back inside
+orrLong  = sORR and orValid and low < orL and close > orL and close > open
+orrShort = sORR and orValid and high > orH and close < orH and close < open
+
+// 5) Wick rejection ("John Wick") at a key level
+rng      = high - low
+lowWick  = math.min(open, close) - low
+highWick = high - math.max(open, close)
+wickUp(lvl) => not na(lvl) and low <= lvl and close > lvl and rng > 0 and lowWick >= 0.5 * rng
+wickDn(lvl) => not na(lvl) and high >= lvl and close < lvl and rng > 0 and highWick >= 0.5 * rng
+wickLong  = sWick and orReady and (wickUp(pdl) or wickUp(orL) or wickUp(pdh) or wickUp(orH))
+wickShort = sWick and orReady and (wickDn(pdh) or wickDn(orH) or wickDn(pdl) or wickDn(orL))
+
+// Trend-following setups need the full trend filter; reversal setups only need the index
+trendLong  = bullTrend and (vwapLong or xLong or brkLong)
+trendShort = bearTrend and (vwapShort or xShort or brkShort)
+revLong    = idxLongOK and (orrLong or wickLong)
+revShort   = idxShortOK and (orrShort or wickShort)
+
+setupName(isLong) =>
+    isLong ? (orrLong ? "ORR" : wickLong ? "WICK" : brkLong ? "BREAKOUT" : vwapLong ? "9xVWAP" : "9x21") : (orrShort ? "ORR" : wickShort ? "WICK" : brkShort ? "BREAKDOWN" : vwapShort ? "9xVWAP" : "9x21")
+
+// ───────── Trade state ─────────
+var int   pos   = 0      // 1 = long (calls), -1 = short (puts)
+var float entry = na
+var float stop  = na
+var float t1    = na
+var float t2    = na
+var bool  t1Hit = false
+
+exitMsg = ""
+t1Msg   = ""
+
+// Manage open trade first
+if pos == 1
+    if low <= stop
+        exitMsg := t1Hit ? "EXIT CALLS - breakeven stop" : "EXIT CALLS - STOP hit"
+    else if high >= t2
+        exitMsg := "EXIT CALLS - Target 2 hit"
+    else if vwapExit and close < vwap
+        exitMsg := "EXIT CALLS - closed below VWAP"
+    else if t1Hit and close < e9
+        exitMsg := "EXIT CALLS - trail: closed below 9 EMA"
+    else if flatTime
+        exitMsg := "EXIT CALLS - 3:30 PM flat (0DTE)"
+    else if not t1Hit and high >= t1
+        t1Hit := true
+        stop  := entry
+        t1Msg := "T1 hit - sell HALF calls, stop to breakeven"
+else if pos == -1
+    if high >= stop
+        exitMsg := t1Hit ? "EXIT PUTS - breakeven stop" : "EXIT PUTS - STOP hit"
+    else if low <= t2
+        exitMsg := "EXIT PUTS - Target 2 hit"
+    else if vwapExit and close > vwap
+        exitMsg := "EXIT PUTS - closed above VWAP"
+    else if t1Hit and close > e9
+        exitMsg := "EXIT PUTS - trail: closed above 9 EMA"
+    else if flatTime
+        exitMsg := "EXIT PUTS - 3:30 PM flat (0DTE)"
+    else if not t1Hit and low <= t1
+        t1Hit := true
+        stop  := entry
+        t1Msg := "T1 hit - sell HALF puts, stop to breakeven"
+
+justExited = exitMsg != ""
+if justExited
+    pos := 0
+
+// New entries
+longSig  = pos == 0 and not justExited and canEnter and stochLongOK and (trendLong or revLong)
+shortSig = pos == 0 and not justExited and canEnter and stochShortOK and (trendShort or revShort) and not longSig
+
+swingLo = ta.lowest(low, swingLen)
+swingHi = ta.highest(high, swingLen)
+
+entryMsg = ""
+if longSig
+    s = math.min(swingLo, low)
+    risk = close - s
+    if risk > 0
+        pos   := 1
+        entry := close
+        stop  := s
+        t1    := close + risk * t1R
+        t2    := close + risk * t2R
+        t1Hit := false
+        entryMsg := "BUY CALLS [" + setupName(true) + "] " + syminfo.ticker + " @ " + str.tostring(close, format.mintick) + " | Stop " + str.tostring(stop, format.mintick) + " | T1 " + str.tostring(t1, format.mintick) + " | T2 " + str.tostring(t2, format.mintick)
+if shortSig
+    s = math.max(swingHi, high)
+    risk = s - close
+    if risk > 0
+        pos   := -1
+        entry := close
+        stop  := s
+        t1    := close - risk * t1R
+        t2    := close - risk * t2R
+        t1Hit := false
+        entryMsg := "BUY PUTS [" + setupName(false) + "] " + syminfo.ticker + " @ " + str.tostring(close, format.mintick) + " | Stop " + str.tostring(stop, format.mintick) + " | T1 " + str.tostring(t1, format.mintick) + " | T2 " + str.tostring(t2, format.mintick)
+
+// ───────── Visuals ─────────
+plot(vwap, "VWAP", color.yellow, 2)
+plot(e9, "EMA 9", color.new(color.lime, 0))
+plot(e21, "EMA 21", color.new(color.blue, 0))
+plot(e50, "EMA 50", color.new(color.red, 0), 2)
+plot(pdh, "Prior-day high (box)", color.new(color.fuchsia, 40), 1, plot.style_stepline)
+plot(pdl, "Prior-day low (box)", color.new(color.fuchsia, 40), 1, plot.style_stepline)
+plot(orReady ? orH : na, "OR high", color.new(color.aqua, 30), 1, plot.style_linebr)
+plot(orReady ? orL : na, "OR low", color.new(color.aqua, 30), 1, plot.style_linebr)
+
+inPos = pos != 0
+plot(inPos ? stop : na, "Stop", color.red, 2, plot.style_linebr)
+plot(inPos ? t1 : na, "Target 1", color.green, 1, plot.style_linebr)
+plot(inPos ? t2 : na, "Target 2", color.green, 2, plot.style_linebr)
+
+if entryMsg != ""
+    isL = pos == 1
+    label.new(bar_index, isL ? low : high, (isL ? "CALLS\n" : "PUTS\n") + setupName(isL), style = isL ? label.style_label_up : label.style_label_down, color = isL ? color.green : color.red, textcolor = color.white, size = size.small)
+if t1Msg != ""
+    label.new(bar_index, pos == 1 ? high : low, "T1\nhalf", style = pos == 1 ? label.style_label_down : label.style_label_up, color = color.orange, textcolor = color.black, size = size.tiny)
+if justExited
+    label.new(bar_index, close, "EXIT", style = label.style_label_left, color = color.gray, textcolor = color.white, size = size.tiny)
+
+bgcolor(bullTrend ? color.new(color.green, 93) : bearTrend ? color.new(color.red, 93) : na, title = "Trend background")
+
+// Dashboard
+var table dash = table.new(position.top_right, 2, 5, bgcolor = color.new(color.black, 20), border_width = 1)
+if barstate.islast
+    table.cell(dash, 0, 0, "Trend", text_color = color.white)
+    table.cell(dash, 1, 0, bullTrend ? "CALLS only" : bearTrend ? "PUTS only" : "NO TRADE", text_color = bullTrend ? color.lime : bearTrend ? color.red : color.gray)
+    table.cell(dash, 0, 1, "Index", text_color = color.white)
+    table.cell(dash, 1, 1, idxBull ? "Bull" : idxBear ? "Bear" : "Chop", text_color = color.white)
+    table.cell(dash, 0, 2, "Open range", text_color = color.white)
+    table.cell(dash, 1, 2, not orReady ? "forming" : orValid ? "valid (ORR on)" : "too small", text_color = color.white)
+    table.cell(dash, 0, 3, "Position", text_color = color.white)
+    table.cell(dash, 1, 3, pos == 1 ? "LONG calls" : pos == -1 ? "SHORT puts" : "flat", text_color = color.white)
+    table.cell(dash, 0, 4, "Window", text_color = color.white)
+    table.cell(dash, 1, 4, canEnter ? "entries open" : "no new entries", text_color = color.white)
+
+// ───────── Alerts ─────────
+// Create ONE alert per chart: Condition = "CC-0DTE" -> "Any alert() function call", "Once per bar close".
+if entryMsg != ""
+    alert(entryMsg, alert.freq_once_per_bar_close)
+if t1Msg != ""
+    alert(t1Msg + " (" + syminfo.ticker + ")", alert.freq_once_per_bar_close)
+if justExited
+    alert(exitMsg + " (" + syminfo.ticker + ")", alert.freq_once_per_bar_close)
+
+alertcondition(longSig, "CC-0DTE Calls", "CC-0DTE: BUY CALLS on {{ticker}} @ {{close}}")
+alertcondition(shortSig, "CC-0DTE Puts", "CC-0DTE: BUY PUTS on {{ticker}} @ {{close}}")
