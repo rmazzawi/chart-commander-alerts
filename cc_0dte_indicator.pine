@@ -2,7 +2,7 @@
 // Chart Commander 0DTE - day-trading signal indicator
 // Built for: SPY, QQQ, IWM, AAPL, MSFT, NVDA, GOOGL, AMZN, META, TSLA
 // Use on 5m or 15m charts, regular session (ET). Educational tool, not financial advice.
-indicator("Chart Commander 0DTE", shorttitle = "CC-0DTE", overlay = true, max_labels_count = 500)
+indicator("Chart Commander 0DTE", shorttitle = "CC-0DTE", overlay = true, scale = scale.right, format = format.inherit, max_labels_count = 500)
 
 // --------- Inputs ---------
 grpF     = "Direction filter"
