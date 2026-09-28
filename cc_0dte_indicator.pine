@@ -1,10 +1,10 @@
 //@version=6
-// Chart Commander 0DTE — day-trading signal indicator
+// Chart Commander 0DTE - day-trading signal indicator
 // Built for: SPY, QQQ, IWM, AAPL, MSFT, NVDA, GOOGL, AMZN, META, TSLA
 // Use on 5m or 15m charts, regular session (ET). Educational tool, not financial advice.
 indicator("Chart Commander 0DTE", shorttitle = "CC-0DTE", overlay = true, max_labels_count = 500)
 
-// ───────── Inputs ─────────
+// --------- Inputs ---------
 grpF     = "Direction filter"
 idxSym   = input.symbol("NASDAQ:QQQ", "Market index (use AMEX:SPY for SPY/IWM)", group = grpF)
 useIdx   = input.bool(true, "Index must agree (above/below its VWAP & 50 EMA)", group = grpF)
@@ -28,11 +28,15 @@ vwapExit = input.bool(true, "Exit on close back across VWAP", group = grpR)
 
 tz = "America/New_York"
 
-// ───────── Core lines ─────────
+// --------- Core lines ---------
 vwap = ta.vwap(hlc3)
 e9   = ta.ema(close, 9)
 e21  = ta.ema(close, 21)
 e50  = ta.ema(close, 50)
+plot(vwap, "VWAP", color.yellow, 2)
+plot(e9, "EMA 9", color.new(color.lime, 0))
+plot(e21, "EMA 21", color.new(color.blue, 0))
+plot(e50, "EMA 50", color.new(color.red, 0), 2)
 
 volAvg = ta.sma(volume, 20)
 volOK  = volume > volAvg * volMult
@@ -54,7 +58,7 @@ idxBear = idxC < idxV and idxC < idxE
 idxLongOK  = not useIdx or idxBull
 idxShortOK = not useIdx or idxBear
 
-// ───────── Sessions ─────────
+// --------- Sessions ---------
 newDay   = ta.change(time("D")) != 0
 inOR     = not na(time(timeframe.period, "0930-0945", tz))
 canEnter = not na(time(timeframe.period, "0945-1430", tz))
@@ -71,11 +75,11 @@ if inOR
 orReady = not inOR and not na(orH)
 orValid = orReady and (orH - orL) >= dAtr * orAtrPct / 100
 
-// ───────── Trend filter ─────────
+// --------- Trend filter ---------
 bullTrend = close > vwap and close > e50 and (not useStack or (e9 > e21 and e21 > e50)) and idxLongOK
 bearTrend = close < vwap and close < e50 and (not useStack or (e9 < e21 and e21 < e50)) and idxShortOK
 
-// ───────── Setups ─────────
+// --------- Setups ---------
 // 1) 9 EMA x VWAP: cross, then a later candle closes beyond the cross candle's high/low
 upX   = ta.crossover(e9, vwap)
 dnX   = ta.crossunder(e9, vwap)
@@ -122,7 +126,7 @@ revShort   = idxShortOK and (orrShort or wickShort)
 setupName(isLong) =>
     isLong ? (orrLong ? "ORR" : wickLong ? "WICK" : brkLong ? "BREAKOUT" : vwapLong ? "9xVWAP" : "9x21") : (orrShort ? "ORR" : wickShort ? "WICK" : brkShort ? "BREAKDOWN" : vwapShort ? "9xVWAP" : "9x21")
 
-// ───────── Trade state ─────────
+// --------- Trade state ---------
 var int   pos   = 0      // 1 = long (calls), -1 = short (puts)
 var float entry = na
 var float stop  = na
@@ -200,11 +204,7 @@ if shortSig
         t1Hit := false
         entryMsg := "BUY PUTS [" + setupName(false) + "] " + syminfo.ticker + " @ " + str.tostring(close, format.mintick) + " | Stop " + str.tostring(stop, format.mintick) + " | T1 " + str.tostring(t1, format.mintick) + " | T2 " + str.tostring(t2, format.mintick)
 
-// ───────── Visuals ─────────
-plot(vwap, "VWAP", color.yellow, 2)
-plot(e9, "EMA 9", color.new(color.lime, 0))
-plot(e21, "EMA 21", color.new(color.blue, 0))
-plot(e50, "EMA 50", color.new(color.red, 0), 2)
+// --------- Visuals ---------
 plot(pdh, "Prior-day high (box)", color.new(color.fuchsia, 40), 1, plot.style_stepline)
 plot(pdl, "Prior-day low (box)", color.new(color.fuchsia, 40), 1, plot.style_stepline)
 plot(orReady ? orH : na, "OR high", color.new(color.aqua, 30), 1, plot.style_linebr)
@@ -239,7 +239,7 @@ if barstate.islast
     table.cell(dash, 0, 4, "Window", text_color = color.white)
     table.cell(dash, 1, 4, canEnter ? "entries open" : "no new entries", text_color = color.white)
 
-// ───────── Alerts ─────────
+// --------- Alerts ---------
 // Create ONE alert per chart: Condition = "CC-0DTE" -> "Any alert() function call", "Once per bar close".
 if entryMsg != ""
     alert(entryMsg, alert.freq_once_per_bar_close)
@@ -250,3 +250,5 @@ if justExited
 
 alertcondition(longSig, "CC-0DTE Calls", "CC-0DTE: BUY CALLS on {{ticker}} @ {{close}}")
 alertcondition(shortSig, "CC-0DTE Puts", "CC-0DTE: BUY PUTS on {{ticker}} @ {{close}}")
+
+// END OF SCRIPT (line check)
