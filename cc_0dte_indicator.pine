@@ -39,14 +39,18 @@ volOK  = volume > volAvg * volMult
 
 k = ta.sma(ta.stoch(close, high, low, 14), 3)
 d = ta.sma(k, 3)
-stochLongOK  = not useStoch or (k > d and ta.lowest(k, 5) < 20)
-stochShortOK = not useStoch or (k < d and ta.highest(k, 5) > 80)
+kLo = ta.lowest(k, 5)
+kHi = ta.highest(k, 5)
+stochLongOK  = not useStoch or (k > d and kLo < 20)
+stochShortOK = not useStoch or (k < d and kHi > 80)
 
 // Prior day high/low + daily ATR (non-repainting)
 [pdh, pdl, dAtr] = request.security(syminfo.tickerid, "D", [high[1], low[1], ta.atr(14)[1]], lookahead = barmerge.lookahead_on)
 
 // Index direction
-[idxBull, idxBear] = request.security(idxSym, timeframe.period, [close > ta.vwap(hlc3) and close > ta.ema(close, 50), close < ta.vwap(hlc3) and close < ta.ema(close, 50)])
+[idxC, idxV, idxE] = request.security(idxSym, timeframe.period, [close, ta.vwap(hlc3), ta.ema(close, 50)])
+idxBull = idxC > idxV and idxC > idxE
+idxBear = idxC < idxV and idxC < idxE
 idxLongOK  = not useIdx or idxBull
 idxShortOK = not useIdx or idxBear
 
@@ -89,8 +93,12 @@ xLong   = sX and bsX21Up <= 1 and close > e9 and close > e21
 xShort  = sX and bsX21Dn <= 1 and close < e9 and close < e21
 
 // 3) Volume breakout of opening range or prior-day level
-brkLong  = sBrk and orReady and volOK and ((ta.crossover(close, orH)) or ta.crossover(close, pdh))
-brkShort = sBrk and orReady and volOK and ((ta.crossunder(close, orL)) or ta.crossunder(close, pdl))
+xOrH  = ta.crossover(close, orH)
+xPdh  = ta.crossover(close, pdh)
+xOrL  = ta.crossunder(close, orL)
+xPdl  = ta.crossunder(close, pdl)
+brkLong  = sBrk and orReady and volOK and (xOrH or xPdh)
+brkShort = sBrk and orReady and volOK and (xOrL or xPdl)
 
 // 4) Opening range reversal: sweep beyond the range, close back inside
 orrLong  = sORR and orValid and low < orL and close > orL and close > open
