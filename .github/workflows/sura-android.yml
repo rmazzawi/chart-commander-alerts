@@ -5,6 +5,9 @@ on:
     paths: ['sura_app/**', '.github/workflows/sura-android.yml']
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -52,3 +55,10 @@ jobs:
           path: |
             sura_app/build/app/outputs/flutter-apk/app-release.apk
             sura_app/build/app/outputs/bundle/release/app-release.aab
+      - name: Publish APK as a direct download
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: build-${{ github.run_number }}
+          name: سُعرة test build ${{ github.run_number }}
+          prerelease: true
+          files: sura_app/build/app/outputs/flutter-apk/app-release.apk
