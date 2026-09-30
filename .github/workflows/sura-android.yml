@@ -1,0 +1,54 @@
+name: Sura Android build
+
+on:
+  push:
+    paths: ['sura_app/**', '.github/workflows/sura-android.yml']
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      HAS_KEYSTORE: ${{ secrets.KEYSTORE_BASE64 != '' }}
+    defaults:
+      run:
+        working-directory: sura_app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+      - run: flutter pub get
+      - run: flutter analyze
+      - run: flutter test
+      - name: Set up release signing
+        if: env.HAS_KEYSTORE == 'true'
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          echo "$KEYSTORE_BASE64" | base64 -d > android/app/upload-keystore.jks
+          cat > android/key.properties <<PROPS
+          storePassword=$KEYSTORE_PASSWORD
+          keyPassword=$KEY_PASSWORD
+          keyAlias=$KEY_ALIAS
+          storeFile=upload-keystore.jks
+          PROPS
+      - name: Build APK and App Bundle
+        env:
+          AI_PROXY_URL: ${{ secrets.AI_PROXY_URL }}
+        run: |
+          flutter build apk --release --dart-define=AI_PROXY_URL=$AI_PROXY_URL
+          flutter build appbundle --release --dart-define=AI_PROXY_URL=$AI_PROXY_URL
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sura-release
+          path: |
+            sura_app/build/app/outputs/flutter-apk/app-release.apk
+            sura_app/build/app/outputs/bundle/release/app-release.aab
