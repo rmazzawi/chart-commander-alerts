@@ -1,0 +1,553 @@
+{
+  "name": "Reya Content Creator Daily (fixed)",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "b61549c8-f4c9-45d3-923d-24db35f0eae9",
+      "name": "Error Trigger",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [2864, 1840]
+    },
+    {
+      "parameters": {
+        "jsCode": "const isTriggerFailure = Boolean($json.trigger);\nconst workflowName = $json.workflow?.name || 'Reya workflow';\nconst failedNode = isTriggerFailure\n  ? ($json.trigger?.error?.node?.name || 'the trigger')\n  : ($json.execution?.lastNodeExecuted || 'an unknown node');\nconst errorMessage = isTriggerFailure\n  ? ($json.trigger?.error?.message || 'Unknown trigger error')\n  : ($json.execution?.error?.message || 'Unknown error');\nconst executionUrl = $json.execution?.url || '';\nconst text = '⚠️ ' + workflowName + ' failed\\n\\n'\n  + 'Stopped at: ' + failedNode + '\\n'\n  + 'Error: ' + errorMessage\n  + (executionUrl ? '\\n\\nDetails: ' + executionUrl : '');\nreturn [{json:{text}}];"
+      },
+      "id": "e76d33a6-5b67-473a-b11a-c2ef1964174e",
+      "name": "Format Alert",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [3072, 1840]
+    },
+    {
+      "parameters": {
+        "chatId": "8469419204",
+        "text": "={{ $json.text }}",
+        "additionalFields": {}
+      },
+      "id": "985544bf-e734-4cf0-b167-82cfb233ff83",
+      "name": "Telegram Error Alert",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [3408, 1872],
+      "webhookId": "880813f5-7bd1-4c8e-b74b-3dde89cb92cf",
+      "credentials": {"telegramApi": {"id": "XOULTtleY3SHT2IR", "name": "Telegram account 8"}}
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {"field": "cronExpression", "expression": "0 11 * * *"},
+            {"field": "cronExpression", "expression": "0 16 * * *"},
+            {"field": "cronExpression", "expression": "0 20 * * *"}
+          ]
+        }
+      },
+      "id": "9849b953-84ab-4fa3-a75f-e18a9763eb5e",
+      "name": "Daily Content at 11am/4pm/8pm (Amman)",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [2176, 2336]
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1mCc9WP4vO5m5YGNapfqXnDor4PXotxJqHh109fhR9Fc",
+          "mode": "list",
+          "cachedResultName": "products",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1mCc9WP4vO5m5YGNapfqXnDor4PXotxJqHh109fhR9Fc/edit"
+        },
+        "sheetName": {"__rl": true, "value": "gid=0", "mode": "list", "cachedResultName": "Sheet1"},
+        "options": {}
+      },
+      "id": "6e497944-8a6e-4e59-9c99-d8f91543e79f",
+      "name": "Get Products for Content",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [2400, 2336],
+      "credentials": {"googleSheetsOAuth2Api": {"id": "k05yQDiTSXQLgeDI", "name": "Google Sheets account 23"}}
+    },
+    {
+      "parameters": {
+        "jsCode": "const allRows = $input.all();\nif (allRows.length === 0) throw new Error('The products sheet returned no rows.');\n\nfunction cleanHeader(h) { return String(h).toLowerCase().replace(/[^a-z]/g, ''); }\n\nconst keys = Object.keys(allRows[0].json);\nconst productKey = keys.find(k => cleanHeader(k) === 'product');\nconst pictureKey = keys.find(k => cleanHeader(k) === 'picture');\nconst lastPostedKey = keys.find(k => cleanHeader(k) === 'lastposted');\nif (!productKey) throw new Error('Product column was not found.');\nif (!pictureKey) throw new Error('Picture column was not found. Columns received: ' + keys.join(', '));\n\nconst seenPictures = new Set();\nconst usableRows = [];\nfor (const item of allRows) {\n  const product = String(item.json[productKey] ?? '').trim();\n  const picture = String(item.json[pictureKey] ?? '').trim();\n  if (!product || !picture) continue;\n  if (product.toLowerCase() === 'in production') continue;\n  if (seenPictures.has(picture)) continue;\n  seenPictures.add(picture);\n  usableRows.push(item.json);\n}\nif (usableRows.length === 0) throw new Error('All product rows have an empty Product or Picture, or were excluded.');\n\n// Google Sheets may hand back the date as text (ISO) OR as a sheet serial\n// number (days since 1899-12-30). Handle both so the sort is always right.\nfunction lastPostedTime(row) {\n  if (!lastPostedKey) return 0;\n  const raw = row[lastPostedKey];\n  if (raw === undefined || raw === null || raw === '') return 0;\n  if (typeof raw === 'number' || /^\\d+(\\.\\d+)?$/.test(String(raw))) {\n    return (Number(raw) - 25569) * 86400000;\n  }\n  const t = Date.parse(raw);\n  return Number.isNaN(t) ? 0 : t;\n}\n\n// Oldest (or never) posted first; row order breaks ties.\nusableRows.sort((a, b) => lastPostedTime(a) - lastPostedTime(b));\nconst chosen = usableRows[0];\n\n// Keep the EXACT sheet value so the Last Posted update matches the row.\nconst sheetProductName = String(chosen[productKey]);\nconst pictureLink = String(chosen[pictureKey]).trim();\nconst driveMatch = pictureLink.match(/\\/file\\/d\\/([^\\/]+)/) || pictureLink.match(/[?&]id=([^&]+)/);\nconst driveFileId = driveMatch ? driveMatch[1] : '';\nconst imageUrl = driveFileId ? `https://drive.google.com/thumbnail?id=${driveFileId}&sz=w1600` : pictureLink;\n\nreturn [{ json: {\n  product: { ...chosen, Product: sheetProductName.trim(), SheetProductName: sheetProductName, Picture: imageUrl, DriveFileId: driveFileId },\n  regeneration: false,\n}}];"
+      },
+      "id": "858643b0-2152-4965-8933-335f3b0f3da7",
+      "name": "Pick One Product",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2624, 2336]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "value": "1mCc9WP4vO5m5YGNapfqXnDor4PXotxJqHh109fhR9Fc",
+          "mode": "list",
+          "cachedResultName": "products",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1mCc9WP4vO5m5YGNapfqXnDor4PXotxJqHh109fhR9Fc/edit?usp=drivesdk"
+        },
+        "sheetName": {"__rl": true, "value": "gid=0", "mode": "list", "cachedResultName": "Sheet1"},
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Product": "={{ $json.product.SheetProductName }}",
+            "Last Posted": "={{ $now.setZone('Asia/Amman').toFormat('yyyy-MM-dd HH:mm:ss') }}"
+          },
+          "matchingColumns": ["Product"],
+          "schema": [
+            {"id": "Product", "displayName": "Product", "required": false, "defaultMatch": false, "display": true, "type": "string", "canBeUsedToMatch": true, "removed": false},
+            {"id": "Last Posted", "displayName": "Last Posted", "required": false, "defaultMatch": false, "display": true, "type": "string", "canBeUsedToMatch": true, "removed": false}
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "41adbe76-e229-4089-bbd4-5c728b063102",
+      "name": "Mark Product Picked (Last Posted)",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [2848, 2160],
+      "credentials": {"googleSheetsOAuth2Api": {"id": "k05yQDiTSXQLgeDI", "name": "Google Sheets account 23"}}
+    },
+    {
+      "parameters": {
+        "jsCode": "// Read from Pick One Product so this works regardless of what the\n// Sheets update node returns.\nconst p = $('Pick One Product').first().json;\nreturn [{json:{product: p.product, regeneration: Boolean(p.regeneration)}}];"
+      },
+      "id": "cd16b3cf-9056-4a7b-b2f4-72a2aa03ace0",
+      "name": "Prepare Product for AI",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [3056, 2160]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ JSON.stringify($json.product) }}",
+        "options": {
+          "systemMessage": "You write Arabic social posts for Reya Candles of Jordan. Write ONE warm, natural Facebook and Instagram caption about the supplied product. Include 3-5 Arabic or relevant hashtags. Never invent facts or prices. Return ONLY raw JSON with this exact shape: {\"caption\":\"...\",\"hashtags\":[\"#tag\"],\"product\":\"exact product name\"}. No markdown.\nDo not mention the price here"
+        }
+      },
+      "id": "85dc3f63-8d94-4df7-9c15-64de4a0bb892",
+      "name": "AI Content Writer Daily",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "position": [3264, 2160]
+    },
+    {
+      "parameters": {
+        "model": {"__rl": true, "value": "gpt-5-mini", "mode": "list", "cachedResultName": "gpt-5-mini"},
+        "builtInTools": {},
+        "options": {}
+      },
+      "id": "f22c0701-9005-4873-b459-5738595008fe",
+      "name": "OpenAI Model for Daily Content",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.3,
+      "position": [3264, 2400],
+      "credentials": {"openAiApi": {"id": "AFOnV3XXbHedZZVo", "name": "OpenAI account 5"}}
+    },
+    {
+      "parameters": {
+        "jsCode": "let raw = $json.output || $json.text || '';\nraw = String(raw).trim().replace(/^```json\\s*/i,'').replace(/^```\\s*/i,'').replace(/```$/,'');\nconst ai = JSON.parse(raw);\nconst source = $('Prepare Product for AI').item.json.product;\nconst hashtags = Array.isArray(ai.hashtags) ? ai.hashtags.join(' ') : String(ai.hashtags || '');\nconst draftId = Date.now().toString(36) + Math.random().toString(36).slice(2,7);\nreturn [{json:{draftId,product:String(source.Product || ai.product || ''),caption:String(ai.caption || ''),hashtags,imageUrl:String(source.Picture || ''),driveFileId:String(source.DriveFileId || ''),price:String(source.Price || ''),weight:String(source.weight || ''),status:'PENDING_APPROVAL'}}];"
+      },
+      "id": "b87d5ebc-e270-47a5-86d2-8d190ae9cfb4",
+      "name": "Build Draft with Product Photo",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [3536, 2336]
+    },
+    {
+      "parameters": {
+        "jsCode": "const store = $getWorkflowStaticData('global');\nstore.contentDrafts = store.contentDrafts || {};\nstore.processedMessages = store.processedMessages || {};\n\n// Only one draft may be waiting at a time. Anything still pending when a\n// new picture goes out is closed as auto-denied by the sweep; here we just\n// record when this draft was sent so the 6h window can be enforced.\nstore.contentDrafts[$json.draftId] = { ...$json, createdAt: Date.now(), status: 'PENDING_APPROVAL' };\n\n// Housekeeping: forget drafts/claims older than 7 days.\nconst cutoff = Date.now() - 7 * 24 * 3600 * 1000;\nfor (const [id, d] of Object.entries(store.contentDrafts)) {\n  if ((d.createdAt || 0) < cutoff) { delete store.contentDrafts[id]; delete store.processedMessages[id]; }\n}\nreturn $input.all();"
+      },
+      "id": "2c6f3345-7a9a-480d-9305-9f75462fcc2f",
+      "name": "Store Pending Draft",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [3744, 2336]
+    },
+    {
+      "parameters": {
+        "operation": "sendPhoto",
+        "chatId": "8469419204",
+        "file": "={{ $json.imageUrl }}",
+        "replyMarkup": "inlineKeyboard",
+        "inlineKeyboard": {
+          "rows": [
+            {
+              "row": {
+                "buttons": [
+                  {"text": "✅ Approve & Post", "additionalFields": {"callback_data": "={{ \"approve:\" + ($json.driveFileId || $json.draftId) + \":\" + $json.draftId }}"}},
+                  {"text": "❌ Decline", "additionalFields": {"callback_data": "={{ \"reject:\" + $json.draftId + \":\" + $json.draftId }}"}}
+                ]
+              }
+            }
+          ]
+        },
+        "additionalFields": {
+          "caption": "={{ \"🕯️ \" + $json.product + \"\\n\\n\" + $json.caption + \"\\n\\n\" + $json.hashtags }}"
+        }
+      },
+      "id": "8796e595-fdc2-496c-9745-d1476b400f5b",
+      "name": "Telegram Photo Approval",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [3968, 2256],
+      "webhookId": "8afd4d0f-0170-4f58-88a8-bf7c40c9c83d",
+      "continueOnFail": true,
+      "credentials": {"telegramApi": {"id": "XOULTtleY3SHT2IR", "name": "Telegram account 8"}}
+    },
+    {
+      "parameters": {
+        "operation": "sendPhoto",
+        "chatId": "1798976243",
+        "file": "={{ $json.imageUrl }}",
+        "replyMarkup": "inlineKeyboard",
+        "inlineKeyboard": {
+          "rows": [
+            {
+              "row": {
+                "buttons": [
+                  {"text": "✅ Approve & Post", "additionalFields": {"callback_data": "={{ \"approve:\" + ($json.driveFileId || $json.draftId) + \":\" + $json.draftId }}"}},
+                  {"text": "❌ Decline", "additionalFields": {"callback_data": "={{ \"reject:\" + $json.draftId + \":\" + $json.draftId }}"}}
+                ]
+              }
+            }
+          ]
+        },
+        "additionalFields": {
+          "caption": "={{ \"🕯️ \" + $json.product + \"\\n\\n\" + $json.caption + \"\\n\\n\" + $json.hashtags }}"
+        }
+      },
+      "id": "95d9a852-00da-45ee-a609-43b0abf56058",
+      "name": "Telegram Photo Approval (Worker)",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [3968, 2448],
+      "webhookId": "8afd4d0f-0170-4f58-88a8-bf7c40c9c83e",
+      "continueOnFail": true,
+      "credentials": {"telegramApi": {"id": "XOULTtleY3SHT2IR", "name": "Telegram account 8"}}
+    },
+    {
+      "parameters": {
+        "updates": ["callback_query"],
+        "additionalFields": {}
+      },
+      "id": "a907192f-019b-44c4-87f4-b537cdc798f9",
+      "name": "Telegram Approval Trigger",
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1.2,
+      "position": [2176, 2752],
+      "webhookId": "reya-content-approval-callback",
+      "credentials": {"telegramApi": {"id": "XOULTtleY3SHT2IR", "name": "Telegram account 8"}}
+    },
+    {
+      "parameters": {
+        "jsCode": "const cb = $json.callback_query;\nif (!cb) return [];\n\nconst AUTHORIZED_USER_IDS = new Set(['8469419204', '1798976243']);\nif (!AUTHORIZED_USER_IDS.has(String(cb.from?.id))) throw new Error('Unauthorized Telegram approval user.');\nconst actorName = cb.from?.first_name || 'Someone';\n\nconst parts = String(cb.data || '').split(':');\nconst action = parts[0];\nconst payload = parts[1];\nconst draftKey = parts[2] || payload;\nconst isDriveId = /^[A-Za-z0-9_-]{15,}$/.test(payload || '');\n\n// 6-hour approval window from the original send time.\nconst APPROVAL_WINDOW_MS = 6 * 60 * 60 * 1000;\nconst sentAtMs = (cb.message?.date || 0) * 1000;\nconst expired = sentAtMs > 0 && (Date.now() - sentAtMs) > APPROVAL_WINDOW_MS;\n\n// Read-only check of the claim (the write happens in Claim Message).\n// The auto-deny sweep also writes here, so a late tap after auto-deny\n// is reported as already handled.\nconst store = $getWorkflowStaticData('global');\nstore.processedMessages = store.processedMessages || {};\nconst messageKey = String(cb.message.chat.id) + ':' + String(cb.message.message_id);\nconst priorClaim = store.processedMessages[draftKey];\nconst alreadyProcessed = Boolean(priorClaim);\n\nconst captionText = String(cb.message?.caption || '');\nconst firstBreak = captionText.indexOf('\\n\\n');\nconst lastBreak = captionText.lastIndexOf('\\n\\n');\nconst draft = store.contentDrafts?.[draftKey];\nconst product = draft?.product || (firstBreak === -1 ? captionText : captionText.slice(0, firstBreak)).replace(/^\\u{1F56F}\\uFE0F?\\s*/u, '').trim();\nconst caption = draft?.caption || (firstBreak !== -1 && firstBreak !== lastBreak ? captionText.slice(firstBreak + 2, lastBreak).trim() : '');\nconst hashtags = draft?.hashtags || (lastBreak !== -1 ? captionText.slice(lastBreak + 2).trim() : '');\n\n// Resolve the picture for BOTH approve and decline so the sheet log\n// always records which picture it was.\nlet imageUrl = draft?.imageUrl || (isDriveId ? `https://drive.google.com/thumbnail?id=${payload}&sz=w1600` : '');\nif (action === 'approve' && !expired && !alreadyProcessed && !imageUrl) {\n  throw new Error('Could not recover the image for this post (draft ' + draftKey + ' not found).');\n}\n\nreturn [{json:{\n  action, actorName, product, caption, hashtags, imageUrl,\n  callbackQueryId: cb.id,\n  chatId: cb.message.chat.id,\n  messageId: cb.message.message_id,\n  messageKey, draftKey, alreadyProcessed,\n  resolvedAction: priorClaim?.action,\n  resolvedBy: priorClaim?.by,\n  expired\n}}];"
+      },
+      "id": "45779fd7-ba92-443c-a355-e6fbaeb0fa5c",
+      "name": "Load Approval Decision",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2416, 2752]
+    },
+    {
+      "parameters": {
+        "resource": "callback",
+        "queryId": "={{ $json.callbackQueryId }}",
+        "additionalFields": {
+          "text": "={{ $json.alreadyProcessed ? ('Already handled: ' + ($json.resolvedAction === 'approve' ? 'approved' : 'denied') + ' by ' + ($json.resolvedBy || 'someone')) : ($json.expired ? 'Approval window closed (6h) — auto-denied.' : ($json.action === 'approve' ? 'Approved — posting now…' : 'Declined — next picture at the next run.')) }}"
+        }
+      },
+      "id": "c5f1d8e2-6c05-4ca9-ad13-3989acafcbb8",
+      "name": "Acknowledge Button Press",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [2640, 2752],
+      "webhookId": "d6c3034d-4e79-4d11-bcbf-ddd9c167771d",
+      "continueOnFail": true,
+      "credentials": {"telegramApi": {"id": "XOULTtleY3SHT2IR", "name": "Telegram account 8"}}
+    },
+    {
+      "parameters": {
+        "jsCode": "const store = $getWorkflowStaticData('global');\nstore.processedMessages = store.processedMessages || {};\nstore.contentDrafts = store.contentDrafts || {};\nconst decision = $('Load Approval Decision').item.json;\n\n// Re-check at claim time (the sweep may have run in between).\nif (store.processedMessages[decision.draftKey]) return [];\n\nif (decision.expired) {\n  // Late tap on an expired draft that the sweep hasn't closed yet:\n  // close it here as auto-denied so it's still logged exactly once.\n  store.processedMessages[decision.draftKey] = { action: 'reject', by: 'Auto (no reply in 6h)' };\n  if (store.contentDrafts[decision.draftKey]) store.contentDrafts[decision.draftKey].status = 'AUTO_DENIED';\n  return [{ json: { ...decision, action: 'reject', actorName: 'Auto (no reply in 6h)' } }];\n}\n\nstore.processedMessages[decision.draftKey] = { action: decision.action, by: decision.actorName };\nif (store.contentDrafts[decision.draftKey]) store.contentDrafts[decision.draftKey].status = decision.action === 'approve' ? 'APPROVED' : 'DENIED';\nreturn [{ json: decision }];"
+      },
+      "id": "76a25b0f-de3f-486f-bf93-705468e3c30f",
+      "name": "Claim Message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2864, 2752]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {"caseSensitive": true, "leftValue": "", "typeValidation": "strict", "version": 2},
+          "conditions": [
+            {"id": "approved-condition", "leftValue": "={{ $json.action }}", "rightValue": "approve", "operator": {"type": "string", "operation": "equals"}}
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "37acfddb-939b-4a53-b30c-3f0dc721155b",
+      "name": "Approved or Declined?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [3088, 2752]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://graph.facebook.com/v23.0/17841414363809044/media",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "contentType": "form-urlencoded",
+        "bodyParameters": {
+          "parameters": [
+            {"name": "image_url", "value": "={{ $('Claim Message').item.json.imageUrl }}"},
+            {"name": "caption", "value": "={{ $('Claim Message').item.json.caption + '\\n\\n' + $('Claim Message').item.json.hashtags }}"}
+          ]
+        },
+        "options": {"timeout": 60000}
+      },
+      "id": "d18c54f8-19e9-440f-87cd-a09c9bb27b5f",
+      "name": "CREATE INSTAGRAM MEDIA - CONNECT META",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [3312, 2656],
+      "credentials": {"httpHeaderAuth": {"id": "h9VHi3hx5Advvq5c", "name": "WhatsApp Cloud API - Reya"}}
+    },
+    {
+      "parameters": {"amount": 15},
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [3536, 2656],
+      "id": "b8426f1e-21a8-4711-bbd3-4b41d280794c",
+      "name": "Wait",
+      "webhookId": "c46bbfed-5575-4a26-80fa-8e83c36bf458"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://graph.facebook.com/v23.0/17841414363809044/media_publish",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "contentType": "form-urlencoded",
+        "bodyParameters": {"parameters": [{"name": "creation_id", "value": "={{ $json.id }}"}]},
+        "options": {"timeout": 60000}
+      },
+      "id": "11c9b5fa-caf9-48ba-9dc2-add6ddd7093e",
+      "name": "PUBLISH TO INSTAGRAM - CONNECT META",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [3760, 2656],
+      "retryOnFail": true,
+      "waitBetweenTries": 5000,
+      "credentials": {"httpHeaderAuth": {"id": "h9VHi3hx5Advvq5c", "name": "WhatsApp Cloud API - Reya"}}
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://graph.facebook.com/v23.0/1192584413943357/photos",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "contentType": "form-urlencoded",
+        "bodyParameters": {
+          "parameters": [
+            {"name": "url", "value": "={{ $('Claim Message').item.json.imageUrl }}"},
+            {"name": "caption", "value": "={{ $('Claim Message').item.json.caption + '\\n\\n' + $('Claim Message').item.json.hashtags }}"},
+            {"name": "published", "value": "true"}
+          ]
+        },
+        "options": {"timeout": 60000}
+      },
+      "id": "8fc58119-8613-439a-a871-8a05c57fa3e7",
+      "name": "POST TO FACEBOOK - CONNECT META",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [3984, 2656],
+      "credentials": {"httpHeaderAuth": {"id": "h9VHi3hx5Advvq5c", "name": "WhatsApp Cloud API - Reya"}}
+    },
+    {
+      "parameters": {"jsCode": "return [{json: $('Claim Message').item.json}];"},
+      "id": "cebd6e81-cdb1-4cc5-9869-62fbdc74891f",
+      "name": "Mark Draft Posted",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [4208, 2656]
+    },
+    {
+      "parameters": {
+        "chatId": "8469419204",
+        "text": "={{ \"✅ Posted to Facebook and Instagram: \" + $json.product + \" (approved by \" + $json.actorName + \")\" }}",
+        "additionalFields": {}
+      },
+      "id": "81b53fe3-a20b-446e-b343-6cabe3e33828",
+      "name": "Telegram Posted Confirmation",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [4432, 2560],
+      "webhookId": "d087dc55-425e-48ac-b28c-4728676b8dc7",
+      "credentials": {"telegramApi": {"id": "XOULTtleY3SHT2IR", "name": "Telegram account 8"}}
+    },
+    {
+      "parameters": {
+        "jsCode": "const d = $json;\nconst parts = new Intl.DateTimeFormat('en-GB', {timeZone: 'Asia/Amman', year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit', hour12:false}).formatToParts(new Date());\nconst get = t => parts.find(p => p.type === t).value;\nreturn [{json:{\n  'Date': get('year') + '-' + get('month') + '-' + get('day'),\n  'Time (hh:mm)': get('hour') + ':' + get('minute'),\n  'Approved Ad Picture': d.imageUrl || '',\n  'Denied Ad Picture': '',\n  'By (Reda/Yanal)': d.actorName || ''\n}}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [4432, 2752],
+      "id": "0764fdb6-55bf-4804-9ece-4a1cec50a0ec",
+      "name": "Format Telegram Log (Approved)"
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {"__rl": true, "value": "1mCc9WP4vO5m5YGNapfqXnDor4PXotxJqHh109fhR9Fc", "mode": "list", "cachedResultName": "products"},
+        "sheetName": {"__rl": true, "value": 555243773, "mode": "list", "cachedResultName": "telegram"},
+        "columns": {"mappingMode": "autoMapInputData", "value": {}, "matchingColumns": [], "attemptToConvertTypes": false, "convertFieldsToString": false},
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [4656, 2752],
+      "id": "f66f9c7f-fead-4daf-ac90-78972833bbca",
+      "name": "Log to Telegram Sheet (Approved)",
+      "credentials": {"googleSheetsOAuth2Api": {"id": "k05yQDiTSXQLgeDI", "name": "Google Sheets account 23"}}
+    },
+    {
+      "parameters": {"jsCode": "return [{json: $('Claim Message').item.json}];"},
+      "id": "1918883e-fc16-473d-aa7f-941f7b0b81a8",
+      "name": "Mark Draft Declined",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [3312, 2944]
+    },
+    {
+      "parameters": {
+        "chatId": "8469419204",
+        "text": "={{ \"❌ Denied: \" + $json.product + \" (by \" + $json.actorName + \")\\n\\nThe next picture will be sent at the next scheduled run.\" }}",
+        "additionalFields": {}
+      },
+      "id": "b66bc740-e973-44f3-8830-c6e843cc2f2b",
+      "name": "Telegram Declined Confirmation",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [3536, 2880],
+      "webhookId": "56df463b-6b4b-48ea-ab3d-423a470282ae",
+      "credentials": {"telegramApi": {"id": "XOULTtleY3SHT2IR", "name": "Telegram account 8"}}
+    },
+    {
+      "parameters": {
+        "jsCode": "const d = $json;\nconst parts = new Intl.DateTimeFormat('en-GB', {timeZone: 'Asia/Amman', year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit', hour12:false}).formatToParts(new Date());\nconst get = t => parts.find(p => p.type === t).value;\nreturn $input.all().map(i => ({json:{\n  'Date': get('year') + '-' + get('month') + '-' + get('day'),\n  'Time (hh:mm)': get('hour') + ':' + get('minute'),\n  'Approved Ad Picture': '',\n  'Denied Ad Picture': i.json.imageUrl || '',\n  'By (Reda/Yanal)': i.json.actorName || ''\n}}));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [3536, 3072],
+      "id": "a6577e18-b738-459d-bf00-b81d9d8526bb",
+      "name": "Format Telegram Log (Declined)"
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {"__rl": true, "value": "1mCc9WP4vO5m5YGNapfqXnDor4PXotxJqHh109fhR9Fc", "mode": "list", "cachedResultName": "products"},
+        "sheetName": {"__rl": true, "value": 555243773, "mode": "list", "cachedResultName": "telegram"},
+        "columns": {"mappingMode": "autoMapInputData", "value": {}, "matchingColumns": [], "attemptToConvertTypes": false, "convertFieldsToString": false},
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [3760, 3072],
+      "id": "a9c16e65-7db6-424e-878d-31192f6e990d",
+      "name": "Log to Telegram Sheet (Declined)",
+      "credentials": {"googleSheetsOAuth2Api": {"id": "k05yQDiTSXQLgeDI", "name": "Google Sheets account 23"}}
+    },
+    {
+      "parameters": {
+        "rule": {"interval": [{"field": "minutes", "minutesInterval": 15}]}
+      },
+      "id": "5d1f7a20-3c1e-4d8b-9a55-0b7e6f0a1c01",
+      "name": "Every 15 min: Check 6h Timeout",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [2176, 3200]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Auto-deny any draft that got no Approve/Decline within 6 hours.\n// Change APPROVAL_WINDOW_HOURS to 4 if you prefer a 4-hour window\n// (also change the 6 in Load Approval Decision).\nconst APPROVAL_WINDOW_HOURS = 6;\nconst store = $getWorkflowStaticData('global');\nstore.contentDrafts = store.contentDrafts || {};\nstore.processedMessages = store.processedMessages || {};\nconst now = Date.now();\nconst out = [];\nfor (const [id, d] of Object.entries(store.contentDrafts)) {\n  if (store.processedMessages[id]) continue;\n  if (!d.createdAt || now - d.createdAt < APPROVAL_WINDOW_HOURS * 3600 * 1000) continue;\n  const by = 'Auto (no reply in ' + APPROVAL_WINDOW_HOURS + 'h)';\n  store.processedMessages[id] = { action: 'reject', by };\n  d.status = 'AUTO_DENIED';\n  out.push({ json: { draftKey: id, product: d.product, imageUrl: d.imageUrl, actorName: by, action: 'reject' } });\n}\nreturn out;"
+      },
+      "id": "5d1f7a20-3c1e-4d8b-9a55-0b7e6f0a1c02",
+      "name": "Find Expired Drafts (Auto-Deny)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2416, 3200]
+    },
+    {
+      "parameters": {
+        "chatId": "8469419204",
+        "text": "={{ \"⏰ Auto-denied (no approval within 6 hours): \" + $json.product + \"\\n\\nThe next picture will be sent at the next scheduled run.\" }}",
+        "additionalFields": {}
+      },
+      "id": "5d1f7a20-3c1e-4d8b-9a55-0b7e6f0a1c03",
+      "name": "Telegram Auto-Deny Notice",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [2864, 3200],
+      "webhookId": "5d1f7a20-3c1e-4d8b-9a55-0b7e6f0a1c04",
+      "continueOnFail": true,
+      "credentials": {"telegramApi": {"id": "XOULTtleY3SHT2IR", "name": "Telegram account 8"}}
+    }
+  ],
+  "connections": {
+    "Error Trigger": {"main": [[{"node": "Format Alert", "type": "main", "index": 0}]]},
+    "Format Alert": {"main": [[{"node": "Telegram Error Alert", "type": "main", "index": 0}]]},
+    "Daily Content at 11am/4pm/8pm (Amman)": {"main": [[{"node": "Get Products for Content", "type": "main", "index": 0}]]},
+    "Get Products for Content": {"main": [[{"node": "Pick One Product", "type": "main", "index": 0}]]},
+    "Pick One Product": {"main": [[{"node": "Mark Product Picked (Last Posted)", "type": "main", "index": 0}]]},
+    "Mark Product Picked (Last Posted)": {"main": [[{"node": "Prepare Product for AI", "type": "main", "index": 0}]]},
+    "Prepare Product for AI": {"main": [[{"node": "AI Content Writer Daily", "type": "main", "index": 0}]]},
+    "OpenAI Model for Daily Content": {"ai_languageModel": [[{"node": "AI Content Writer Daily", "type": "ai_languageModel", "index": 0}]]},
+    "AI Content Writer Daily": {"main": [[{"node": "Build Draft with Product Photo", "type": "main", "index": 0}]]},
+    "Build Draft with Product Photo": {"main": [[{"node": "Store Pending Draft", "type": "main", "index": 0}]]},
+    "Store Pending Draft": {"main": [[
+      {"node": "Telegram Photo Approval", "type": "main", "index": 0},
+      {"node": "Telegram Photo Approval (Worker)", "type": "main", "index": 0}
+    ]]},
+    "Telegram Approval Trigger": {"main": [[{"node": "Load Approval Decision", "type": "main", "index": 0}]]},
+    "Load Approval Decision": {"main": [[{"node": "Acknowledge Button Press", "type": "main", "index": 0}]]},
+    "Acknowledge Button Press": {"main": [[{"node": "Claim Message", "type": "main", "index": 0}]]},
+    "Claim Message": {"main": [[{"node": "Approved or Declined?", "type": "main", "index": 0}]]},
+    "Approved or Declined?": {"main": [
+      [{"node": "CREATE INSTAGRAM MEDIA - CONNECT META", "type": "main", "index": 0}],
+      [{"node": "Mark Draft Declined", "type": "main", "index": 0}]
+    ]},
+    "CREATE INSTAGRAM MEDIA - CONNECT META": {"main": [[{"node": "Wait", "type": "main", "index": 0}]]},
+    "Wait": {"main": [[{"node": "PUBLISH TO INSTAGRAM - CONNECT META", "type": "main", "index": 0}]]},
+    "PUBLISH TO INSTAGRAM - CONNECT META": {"main": [[{"node": "POST TO FACEBOOK - CONNECT META", "type": "main", "index": 0}]]},
+    "POST TO FACEBOOK - CONNECT META": {"main": [[{"node": "Mark Draft Posted", "type": "main", "index": 0}]]},
+    "Mark Draft Posted": {"main": [[
+      {"node": "Telegram Posted Confirmation", "type": "main", "index": 0},
+      {"node": "Format Telegram Log (Approved)", "type": "main", "index": 0}
+    ]]},
+    "Format Telegram Log (Approved)": {"main": [[{"node": "Log to Telegram Sheet (Approved)", "type": "main", "index": 0}]]},
+    "Mark Draft Declined": {"main": [[
+      {"node": "Telegram Declined Confirmation", "type": "main", "index": 0},
+      {"node": "Format Telegram Log (Declined)", "type": "main", "index": 0}
+    ]]},
+    "Format Telegram Log (Declined)": {"main": [[{"node": "Log to Telegram Sheet (Declined)", "type": "main", "index": 0}]]},
+    "Every 15 min: Check 6h Timeout": {"main": [[{"node": "Find Expired Drafts (Auto-Deny)", "type": "main", "index": 0}]]},
+    "Find Expired Drafts (Auto-Deny)": {"main": [[
+      {"node": "Telegram Auto-Deny Notice", "type": "main", "index": 0},
+      {"node": "Format Telegram Log (Declined)", "type": "main", "index": 0}
+    ]]}
+  },
+  "settings": {"executionOrder": "v1", "timezone": "Asia/Amman", "saveManualExecutions": true},
+  "pinData": {},
+  "meta": {"templateCredsSetupCompleted": true, "instanceId": "f3ebdc47079737fb41f9a77191b283344a56abf33f613d18c592413418d3cc73"}
+}
