@@ -17,7 +17,7 @@ export default {
     let body;
     try { body = JSON.parse(raw); } catch { return new Response('Bad JSON', { status: 400 }); }
     if (!ALLOWED_MODELS.has(body.model)) return new Response('Model not allowed', { status: 400 });
-    body.max_tokens = Math.min(body.max_tokens ?? 1024, 1024);
+    body.max_tokens = Math.min(body.max_tokens ?? 2048, 2048);
 
     // Optional: add per-device rate limiting with KV / Durable Objects here.
     const res = await fetch('https://api.anthropic.com/v1/messages', {

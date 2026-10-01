@@ -1,6 +1,6 @@
 # سُعرة (Sura) — project status
 
-_Last updated: 2026-09-30_
+_Last updated: 2026-10-01_
 
 ## Done ✅
 - Flutter Android app built: Arabic RTL UI, 85+ Arab dish database, meal/snack/Ramadan logging,
@@ -10,6 +10,10 @@ _Last updated: 2026-09-30_
 - GitHub Actions builds on every push. The test APK is published as a direct download under
   **Releases** (e.g. https://github.com/rmazzawi/chart-commander-alerts/releases/tag/build-2).
 - **The owner installed the test APK on their phone and it works.**
+- Full nutrition analysis per meal/photo and per day: protein, carbs, fat, sugar, fiber, saturated fat,
+  cholesterol, sodium, 5 minerals, 5 vitamins, with % of daily value and tips. Dish-list values are
+  category-based estimates; AI photo analysis returns per-dish values.
+- Portion can be entered as an exact weight in grams (as well as ×0.5–×2).
 
 ## Current limitations of the test build
 - AI photo recognition is OFF: no Anthropic API key or proxy set up yet. Users pick dishes from the list.

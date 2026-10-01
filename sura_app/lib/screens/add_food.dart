@@ -6,9 +6,11 @@ import 'package:path_provider/path_provider.dart';
 
 import '../data/arab_foods.dart';
 import '../models.dart';
+import '../nutrition.dart';
 import '../services/ai_vision.dart';
 import '../theme.dart';
 import '../widgets/common.dart';
+import 'nutrition_screen.dart';
 
 MealType guessMeal(bool ramadan) {
   final h = DateTime.now().hour;
@@ -167,9 +169,9 @@ class _AnalyzeScreenState extends State<AnalyzeScreen> {
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
           child: ListTile(
             title: Text(d.name, style: const TextStyle(fontWeight: FontWeight.w800)),
-            subtitle: Text(d.portion),
+            subtitle: Text('${d.portion}${d.grams > 0 ? ' · ${d.grams.round()}غ' : ''}'),
             trailing: Text('${d.kcal} سعرة', style: const TextStyle(color: C.emerald, fontWeight: FontWeight.w800)),
-            onTap: () => _confirm(d.name, d.kcal, d.protein, d.carbs, d.fat),
+            onTap: () => _confirm(d.name, d.kcal, d.protein, d.carbs, d.fat, d.grams, d.nutrients),
           ),
         ),
       const SizedBox(height: 12),
@@ -182,6 +184,8 @@ class _AnalyzeScreenState extends State<AnalyzeScreen> {
             t.fold(0.0, (a, d) => a + d.protein),
             t.fold(0.0, (a, d) => a + d.carbs),
             t.fold(0.0, (a, d) => a + d.fat),
+            t.fold(0.0, (a, d) => a + d.grams),
+            sumNutrients(t.map((d) => d.nutrients)),
           );
         },
         child: Text('أضف الكل (${_dishes!.fold<int>(0, (a, d) => a + d.kcal)} سعرة)'),
@@ -189,23 +193,42 @@ class _AnalyzeScreenState extends State<AnalyzeScreen> {
     ]);
   }
 
-  void _confirm(String name, int kcal, double p, double c, double f) =>
-      confirmAndSave(context, name: name, kcal: kcal, p: p, c: c, f: f, photoPath: widget.photo.path, popCount: 1);
+  void _confirm(String name, int kcal, double p, double c, double f, double g, Map<String, double> n) =>
+      confirmAndSave(context,
+          name: name, kcal: kcal, p: p, c: c, f: f, grams: g, nutrients: n, photoPath: widget.photo.path);
 }
 
-/// Bottom sheet to choose portion + meal, then saves and alerts if over.
+/// Bottom sheet to set portion (by multiplier or exact grams) and meal,
+/// shows the nutrition preview, then saves and alerts if over target.
 Future<void> confirmAndSave(BuildContext context,
     {required String name,
     required int kcal,
     required double p,
     required double c,
     required double f,
+    double grams = 0,
+    Map<String, double> nutrients = const {},
     String? photoPath,
     int popCount = 1}) async {
   final s = AppScope.of(context);
   final nav = Navigator.of(context);
   var meal = guessMeal(s.ramadanMode);
   var mult = 1.0;
+  final baseGrams = grams > 0 ? grams : 0.0;
+  final gramsCtl = TextEditingController(text: baseGrams > 0 ? baseGrams.round().toString() : '');
+  FoodEntry build() => FoodEntry(
+        id: DateTime.now().microsecondsSinceEpoch.toString(),
+        name: name,
+        kcal: (kcal * mult).round(),
+        protein: p * mult,
+        carbs: c * mult,
+        fat: f * mult,
+        meal: meal,
+        time: DateTime.now(),
+        photoPath: photoPath,
+        grams: baseGrams * mult,
+        nutrients: scaleNutrients(nutrients, mult),
+      );
   final ok = await showModalBottomSheet<bool>(
     context: context,
     isScrollControlled: true,
@@ -213,58 +236,88 @@ Future<void> confirmAndSave(BuildContext context,
     builder: (ctx) => StatefulBuilder(
       builder: (ctx, set) => SafeArea(
         child: Padding(
-          padding: const EdgeInsets.all(20),
-          child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-            Text(name, textAlign: TextAlign.center, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800)),
-            Text('${(kcal * mult).round()} سعرة',
-                textAlign: TextAlign.center, style: const TextStyle(fontSize: 34, fontWeight: FontWeight.w800, color: C.emerald)),
-            const SizedBox(height: 8),
-            const Text('حجم الحصة', textAlign: TextAlign.center),
-            Wrap(
-              alignment: WrapAlignment.center,
-              spacing: 8,
-              children: [0.5, 0.75, 1.0, 1.5, 2.0]
-                  .map((m) => ChoiceChip(
-                        label: Text(m == 1 ? 'عادية' : '×$m'),
-                        selected: mult == m,
-                        onSelected: (_) => set(() => mult = m),
-                      ))
-                  .toList(),
-            ),
-            const SizedBox(height: 12),
-            const Text('نوع الوجبة', textAlign: TextAlign.center),
-            Wrap(
-              alignment: WrapAlignment.center,
-              spacing: 8,
-              children: (s.ramadanMode
-                      ? [MealType.suhoor, MealType.iftar, MealType.snack]
-                      : [MealType.breakfast, MealType.lunch, MealType.dinner, MealType.snack])
-                  .map((m) => ChoiceChip(
-                        label: Text('${m.emoji} ${m.ar}'),
-                        selected: meal == m,
-                        onSelected: (_) => set(() => meal = m),
-                      ))
-                  .toList(),
-            ),
-            const SizedBox(height: 20),
-            FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('حفظ ✅')),
-          ]),
+          padding: EdgeInsets.fromLTRB(20, 20, 20, 20 + MediaQuery.of(ctx).viewInsets.bottom),
+          child: SingleChildScrollView(
+            child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+              Text(name, textAlign: TextAlign.center, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800)),
+              Text('${(kcal * mult).round()} سعرة',
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(fontSize: 34, fontWeight: FontWeight.w800, color: C.emerald)),
+              MacroRow(p * mult, c * mult, f * mult, sugar: (nutrients['sugar'] ?? 0) * mult),
+              const SizedBox(height: 12),
+              const Text('حجم الحصة', textAlign: TextAlign.center),
+              Wrap(
+                alignment: WrapAlignment.center,
+                spacing: 8,
+                children: [0.5, 0.75, 1.0, 1.5, 2.0]
+                    .map((m) => ChoiceChip(
+                          label: Text(m == 1 ? 'عادية' : '×$m'),
+                          selected: mult == m,
+                          onSelected: (_) => set(() {
+                            mult = m;
+                            if (baseGrams > 0) gramsCtl.text = (baseGrams * m).round().toString();
+                          }),
+                        ))
+                    .toList(),
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                controller: gramsCtl,
+                keyboardType: TextInputType.number,
+                textAlign: TextAlign.center,
+                decoration: InputDecoration(
+                  labelText: 'أو أدخل الوزن بالغرام',
+                  suffixText: 'غ',
+                  prefixIcon: const Icon(Icons.scale_outlined),
+                  helperText: baseGrams > 0 ? 'الحصة العادية ≈ ${baseGrams.round()}غ' : 'أدخل الوزن الذي أكلته',
+                ),
+                onChanged: (v) {
+                  final g = double.tryParse(v);
+                  if (g == null || g <= 0) return;
+                  // Without a known base weight, treat the entered weight as one serving.
+                  if (baseGrams > 0) set(() => mult = g / baseGrams);
+                },
+              ),
+              const SizedBox(height: 12),
+              const Text('نوع الوجبة', textAlign: TextAlign.center),
+              Wrap(
+                alignment: WrapAlignment.center,
+                spacing: 8,
+                children: (s.ramadanMode
+                        ? [MealType.suhoor, MealType.iftar, MealType.snack]
+                        : [MealType.breakfast, MealType.lunch, MealType.dinner, MealType.snack])
+                    .map((m) => ChoiceChip(
+                          label: Text('${m.emoji} ${m.ar}'),
+                          selected: meal == m,
+                          onSelected: (_) => set(() => meal = m),
+                        ))
+                    .toList(),
+              ),
+              const SizedBox(height: 12),
+              OutlinedButton.icon(
+                onPressed: () => Navigator.push(ctx, MaterialPageRoute(builder: (_) => NutritionScreen.entry(build()))),
+                icon: const Icon(Icons.analytics_outlined),
+                label: const Text('عرض التحليل الغذائي الكامل'),
+              ),
+              const SizedBox(height: 8),
+              FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('حفظ ✅')),
+            ]),
+          ),
         ),
       ),
     ),
   );
   if (ok != true || !context.mounted) return;
-  final entry = FoodEntry(
-    id: DateTime.now().microsecondsSinceEpoch.toString(),
-    name: name,
-    kcal: (kcal * mult).round(),
-    protein: p * mult,
-    carbs: c * mult,
-    fat: f * mult,
-    meal: meal,
-    time: DateTime.now(),
-    photoPath: photoPath,
-  );
+  var entry = build();
+  if (baseGrams == 0) {
+    final g = double.tryParse(gramsCtl.text);
+    if (g != null && g > 0) {
+      entry = FoodEntry(
+          id: entry.id, name: entry.name, kcal: entry.kcal, protein: entry.protein, carbs: entry.carbs,
+          fat: entry.fat, meal: entry.meal, time: entry.time, photoPath: entry.photoPath,
+          grams: g, nutrients: entry.nutrients);
+    }
+  }
   final over = await s.addFood(entry);
   if (!nav.mounted) return;
   for (var i = 0; i < popCount; i++) {
@@ -340,7 +393,14 @@ class _DishSearchScreenState extends State<DishSearchScreen> {
                   subtitle: Text('${d.region} · ${d.serving}'),
                   trailing: Text('${d.kcal}', style: const TextStyle(color: C.emerald, fontWeight: FontWeight.w800, fontSize: 16)),
                   onTap: () => confirmAndSave(context,
-                      name: d.name, kcal: d.kcal, p: d.protein, c: d.carbs, f: d.fat, photoPath: widget.photoPath),
+                      name: d.name,
+                      kcal: d.kcal,
+                      p: d.protein,
+                      c: d.carbs,
+                      f: d.fat,
+                      grams: d.grams,
+                      nutrients: d.nutrients,
+                      photoPath: widget.photoPath),
                 ),
               );
             },

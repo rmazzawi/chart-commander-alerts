@@ -6,6 +6,7 @@ import 'package:intl/intl.dart';
 import '../models.dart';
 import '../theme.dart';
 import '../widgets/common.dart';
+import 'nutrition_screen.dart';
 import 'paywall.dart';
 
 class TodayScreen extends StatelessWidget {
@@ -70,6 +71,19 @@ class TodayScreen extends StatelessWidget {
             const SizedBox(width: 12),
             MacroBar('دهون', f, target * .25 / 9, C.fat),
           ]),
+          const SizedBox(height: 14),
+          OutlinedButton.icon(
+            onPressed: items.isEmpty
+                ? null
+                : () => Navigator.push(context, MaterialPageRoute(builder: (_) => NutritionScreen.day(items))),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: Colors.white,
+              side: const BorderSide(color: Colors.white54),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            ),
+            icon: const Icon(Icons.analytics_outlined),
+            label: const Text('التحليل الغذائي الكامل لليوم'),
+          ),
         ]),
       ),
       if (over)
@@ -189,6 +203,8 @@ class _MealSection extends StatelessWidget {
               onDismissed: (_) => s.removeFood(e.id),
               child: ListTile(
                 contentPadding: EdgeInsets.zero,
+                onTap: () => Navigator.push(
+                    context, MaterialPageRoute(builder: (_) => NutritionScreen.entry(e))),
                 leading: ClipRRect(
                   borderRadius: BorderRadius.circular(12),
                   child: e.photoPath != null && File(e.photoPath!).existsSync()

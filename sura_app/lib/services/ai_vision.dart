@@ -8,8 +8,10 @@ class DetectedDish {
   final String name;
   final String portion;
   final int kcal;
-  final double protein, carbs, fat;
-  DetectedDish(this.name, this.portion, this.kcal, this.protein, this.carbs, this.fat);
+  final double protein, carbs, fat, grams;
+  final Map<String, double> nutrients;
+  DetectedDish(this.name, this.portion, this.kcal, this.protein, this.carbs, this.fat,
+      [this.grams = 0, this.nutrients = const {}]);
 
   factory DetectedDish.fromJson(Map<String, dynamic> j) => DetectedDish(
         j['name_ar'] ?? j['name'] ?? 'طبق',
@@ -18,6 +20,8 @@ class DetectedDish {
         (j['protein_g'] as num? ?? 0).toDouble(),
         (j['carbs_g'] as num? ?? 0).toDouble(),
         (j['fat_g'] as num? ?? 0).toDouble(),
+        (j['grams'] as num? ?? 0).toDouble(),
+        (j['nutrients'] as Map? ?? {}).map((k, v) => MapEntry(k as String, (v as num).toDouble())),
       );
 }
 
@@ -36,8 +40,11 @@ class AiVision {
   static const _prompt = '''
 أنت خبير تغذية متخصص في المطبخ العربي (الخليجي، الشامي، المصري، المغاربي، العراقي، اليمني).
 حلّل صورة الطعام وحدد كل طبق ظاهر وقدّر حجم الحصة من خلال الصحن وأدوات المائدة.
-أعد JSON فقط بدون أي نص آخر، بالشكل:
-{"dishes":[{"name_ar":"كبسة دجاج","portion":"صحن متوسط ~350غ","kcal":620,"protein_g":35,"carbs_g":72,"fat_g":20}]}
+أعد JSON فقط بدون أي نص آخر، بالشكل (القيم للحصة الظاهرة كاملة):
+{"dishes":[{"name_ar":"كبسة دجاج","portion":"صحن متوسط","grams":350,"kcal":620,"protein_g":35,"carbs_g":72,"fat_g":20,
+"nutrients":{"sugar":4,"fiber":3,"satFat":6,"cholesterol":95,"sodium":1100,"potassium":650,"calcium":70,"iron":3,
+"magnesium":70,"zinc":4,"vitA":90,"vitC":12,"vitD":0.3,"vitB12":0.8,"folate":45}}]}
+الوحدات: sugar/fiber/satFat بالغرام، vitA/vitD/vitB12/folate بالميكروغرام، والباقي بالملليغرام.
 إذا لم تكن الصورة طعاماً أعد {"dishes":[]}.''';
 
   static Future<List<DetectedDish>> analyze(File image) async {
@@ -47,7 +54,7 @@ class AiVision {
     final bytes = await image.readAsBytes();
     final body = jsonEncode({
       'model': model,
-      'max_tokens': 1024,
+      'max_tokens': 2048,
       'messages': [
         {
           'role': 'user',

@@ -103,6 +103,8 @@ class FoodEntry {
   final MealType meal;
   final DateTime time;
   final String? photoPath;
+  final double grams;
+  final Map<String, double> nutrients;
 
   FoodEntry({
     required this.id,
@@ -114,6 +116,8 @@ class FoodEntry {
     required this.meal,
     required this.time,
     this.photoPath,
+    this.grams = 0,
+    this.nutrients = const {},
   });
 
   Map<String, dynamic> toJson() => {
@@ -126,6 +130,8 @@ class FoodEntry {
         'meal': meal.index,
         'time': time.toIso8601String(),
         'photo': photoPath,
+        'g': grams,
+        'n': nutrients,
       };
 
   factory FoodEntry.fromJson(Map<String, dynamic> j) => FoodEntry(
@@ -138,6 +144,9 @@ class FoodEntry {
         meal: MealType.values[j['meal']],
         time: DateTime.parse(j['time']),
         photoPath: j['photo'],
+        grams: (j['g'] as num? ?? 0).toDouble(),
+        nutrients: (j['n'] as Map? ?? {})
+            .map((k, v) => MapEntry(k as String, (v as num).toDouble())),
       );
 }
 

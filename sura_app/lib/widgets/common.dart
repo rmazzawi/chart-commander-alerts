@@ -152,3 +152,30 @@ Future<void> showOverLimitAlert(BuildContext context, int eaten, int target) {
     ),
   );
 }
+
+/// Compact protein / carbs / fat / sugar row used in sheets and cards.
+class MacroRow extends StatelessWidget {
+  final double p, c, f;
+  final double? sugar;
+  const MacroRow(this.p, this.c, this.f, {super.key, this.sugar});
+  @override
+  Widget build(BuildContext context) {
+    Widget chip(String l, double v, Color col) => Expanded(
+          child: Container(
+            margin: const EdgeInsets.symmetric(horizontal: 3),
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            decoration: BoxDecoration(color: col.withValues(alpha: .12), borderRadius: BorderRadius.circular(14)),
+            child: Column(children: [
+              Text('${v.round()}غ', style: TextStyle(fontWeight: FontWeight.w800, color: col, fontSize: 16)),
+              Text(l, style: const TextStyle(fontSize: 11)),
+            ]),
+          ),
+        );
+    return Row(children: [
+      chip('بروتين', p, C.protein),
+      chip('كربوهيدرات', c, C.carbs),
+      chip('دهون', f, C.fat),
+      if (sugar != null) chip('سكريات', sugar!, C.coral),
+    ]);
+  }
+}

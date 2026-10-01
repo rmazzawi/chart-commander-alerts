@@ -1,3 +1,5 @@
+import '../nutrition.dart';
+
 /// Arab-world dish database. Values are per typical serving (approximate,
 /// compiled from common regional nutrition references).
 class Dish {
@@ -9,6 +11,12 @@ class Dish {
   final String category;
   const Dish(this.name, this.region, this.serving, this.kcal, this.protein,
       this.carbs, this.fat, this.category);
+
+  /// Serving weight in grams.
+  double get grams => gramsFor(name, serving);
+
+  /// Estimated sugar, fiber, minerals and vitamins for one serving.
+  Map<String, double> get nutrients => estimateNutrients(name, category, grams, carbs);
 }
 
 const arabDishes = <Dish>[
