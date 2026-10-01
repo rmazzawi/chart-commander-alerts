@@ -35,7 +35,7 @@ Open *Daily Run* and click **Execute workflow**. That's the "▶ Start the day" 
 - 🔎 a research summary arrives on Telegram,
 - draft cards arrive, each showing "⏰ Approve before …",
 - 📝 manager notes arrive if any draft was fixed or blocked.
-Tap a button to check the reply. If you don't tap a card, it gets denied automatically after 6 hours and you receive a ⏰ notice.
+Tap a button to check the reply. If you don't tap a card within 6 hours it is denied automatically and you get a ⏰ notice. Only daytime hours count (08:00–22:00 Amman), so a card sent at 21:00 stays open until 13:00 the next day.
 
 ## Changing settings
 In each code step, near the top: `APPROVAL_HOURS=6`, `LIMIT=20`, `APPROVERS=[…]`, `MODEL`.

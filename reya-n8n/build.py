@@ -29,7 +29,12 @@ const parseJson=t=>{t=String(t||'').replace(/```json|```/g,'');const a=t.search(
 const claudeText=r=>(r.content||[]).filter(c=>c.type==='text').map(c=>c.text).join('\n');
 const clean=v=>s(v).replace(/<\/?cite[^>]*>/g,'').replace(/\(?cite index="[^"]*">/g,'').trim();
 const esc=x=>String(x).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-const deadlineIso=()=>new Date(Date.now()+APPROVAL_HOURS*3600e3).toISOString();
+// 6 approval hours counted only while awake (08:00-22:00 Amman, UTC+3): a card at 21:00 expires 13:00 next day
+const deadlineIso=()=>{const OFF=3*3600e3,START=8,END=22;let t=Date.now(),left=APPROVAL_HOURS*3600e3;
+  while(left>0){const l=new Date(t+OFF);const h=l.getUTCHours()+l.getUTCMinutes()/60+l.getUTCSeconds()/3600;
+    if(h<START){t+=(START-h)*3600e3;continue;}if(h>=END){t+=(24-h+START)*3600e3;continue;}
+    const step=Math.min(left,(END-h)*3600e3);t+=step;left-=step;}
+  return new Date(t).toISOString();};
 const fmtAmman=iso=>new Date(iso).toLocaleString('en-GB',{timeZone:TZ,weekday:'short',day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'});
 // Categories (ز flowers retired; ط spas and ح home decor added per CLAUDE.md)
 const CATS=['أ — منظمو حفلات الزفاف','ب — متاجر هدايا المعمودية','ج — متاجر الشموع المميزة (بائعو تجزئة فقط)','هـ — محال الكيك والمناسبات','و — محال الهدايا في فنادق 5 نجوم','ط — سبا نسائي (سبا للسيدات)','ح — محال الديكور المنزلي والمفاهيم'];
