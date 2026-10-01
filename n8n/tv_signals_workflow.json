@@ -5,7 +5,9 @@
       "parameters": {
         "httpMethod": "POST",
         "path": "tv-signal",
-        "options": {}
+        "options": {
+          "rawBody": true
+        }
       },
       "id": "a1",
       "name": "TV Webhook (POST)",
@@ -19,7 +21,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const KEY = 'change-me'; // must match the Pine input 'Webhook key' (used by the per-chart alert() path)\nconst ACT = {'1':'BUY CALLS','-1':'BUY PUTS','2':'SELL HALF CALLS','-2':'SELL HALF PUTS','3':'EXIT CALLS','-3':'EXIT PUTS'};\nconst STR = {'1':'S1 ORB 30m','2':'S2 SWEEP REVERSAL','3':'S3 VWAP'};\nconst store = $getWorkflowStaticData('global');\nstore.signals = store.signals || [];\nfor (const item of $input.all()) {\n  let b = item.json.body;\n  if (typeof b === 'string') { try { b = JSON.parse(b.replace(/\\bNaN\\b/g, 'null')); } catch (e) { continue; } }\n  if (!b) continue;\n  if (b.src === 'cc-ac') {               // watchlist alertcondition format\n    b.action = ACT[String(Math.round(b.code))] || ('code ' + b.code);\n    b.strategy = STR[String(Math.round(b.strat))] || '';\n    b.rvol = b.rvol == null ? null : Math.round(b.rvol * 10) / 10;\n    delete b.code; delete b.strat; delete b.src;\n  } else if (b.key !== KEY) {\n    continue;\n  }\n  delete b.key;\n  b.received = new Date().toISOString();\n  store.signals.unshift(b);\n}\nstore.signals = store.signals.slice(0, 500);\nreturn [{ json: { ok: true, stored: store.signals.length } }];"
+        "jsCode": "const KEY = 'change-me'; // must match the Pine input 'Webhook key' (used by the per-chart alert() path)\nconst ACT = {'1':'BUY CALLS','-1':'BUY PUTS','2':'SELL HALF CALLS','-2':'SELL HALF PUTS','3':'EXIT CALLS','-3':'EXIT PUTS'};\nconst STR = {'1':'S1 ORB 30m','2':'S2 SWEEP REVERSAL','3':'S3 VWAP'};\nconst store = $getWorkflowStaticData('global');\nstore.signals = store.signals || [];\nfor (const item of $input.all()) {\n  let b = item.json.body;\n  // TradingView sends text/plain when the message is not strict JSON (e.g. NaN) -> fall back to the raw body\n  if ((!b || (typeof b === 'object' && Object.keys(b).length === 0)) && item.binary && item.binary.data) {\n    b = Buffer.from(item.binary.data.data, 'base64').toString('utf8');\n  }\n  if (typeof b === 'string') { try { b = JSON.parse(b.replace(/\\bNaN\\b/g, 'null')); } catch (e) { continue; } }\n  if (!b) continue;\n  if (b.src === 'cc-ac') {               // watchlist alertcondition format\n    b.action = ACT[String(Math.round(b.code))] || ('code ' + b.code);\n    b.strategy = STR[String(Math.round(b.strat))] || '';\n    b.rvol = b.rvol == null ? null : Math.round(b.rvol * 10) / 10;\n    delete b.code; delete b.strat; delete b.src;\n  } else if (b.key !== KEY) {\n    continue;\n  }\n  delete b.key;\n  b.received = new Date().toISOString();\n  store.signals.unshift(b);\n}\nstore.signals = store.signals.slice(0, 500);\nreturn [{ json: { ok: true, stored: store.signals.length } }];"
       },
       "id": "a2",
       "name": "Save signal",
