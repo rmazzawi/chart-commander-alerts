@@ -1,0 +1,364 @@
+//@version=6
+// Chart Commander - Multi Strategy (0DTE)
+// Tickers: SPY QQQ IWM AAPL MSFT NVDA GOOGL AMZN META TSLA
+// Chart: 2-minute, EXTENDED HOURS ON (needed for premarket high/low)
+// Every entry = trigger -> retest that holds on LIGHTER volume -> confirmation candle on HEAVIER volume
+// Educational tool, not financial advice.
+indicator("Chart Commander Multi", shorttitle = "CC-Multi", overlay = true, scale = scale.right, format = format.inherit, max_labels_count = 500)
+
+// ---------------- Inputs ----------------
+gS  = "Strategies"
+s1  = input.bool(true, "S1 - 30m Opening Range Break + 20 EMA retest", group = gS)
+s2  = input.bool(true, "S2 - Liquidity sweep reversal (PM/PD/OR/equal H-L)", group = gS)
+s3  = input.bool(true, "S3 - VWAP reclaim / loss + retest", group = gS)
+
+gV      = "Volume"
+volLen  = input.int(20, "Average volume length (bars)", minval = 5, group = gV)
+volMult = input.float(1.5, "Trigger candle must be >= x average volume", step = 0.1, group = gV)
+
+gR      = "Risk & exits"
+maxWait = input.int(30, "Max bars to wait for retest/confirm", minval = 5, group = gR)
+tolAtr  = input.float(0.15, "Retest touch tolerance (x ATR)", step = 0.05, group = gR)
+minR    = input.float(0.5, "Min distance to target (x risk)", step = 0.1, group = gR)
+
+gA      = "Alerts / webhook"
+hookKey = input.string("change-me", "Webhook key (must match n8n)", group = gA)
+
+gD       = "Display"
+showPD   = input.bool(true, "Show levels (PM, PD, OR, EQ)", group = gD)
+showSlow = input.bool(true, "Show slow lines (77 EMA, 200/400 SMA, 72/89 cloud)", group = gD)
+
+tz = "America/New_York"
+
+// ---------------- Lines (your settings) ----------------
+vwap = ta.vwap(hlc3)
+e5   = ta.ema(close, 5)
+e9   = ta.ema(close, 9)
+e20  = ta.ema(close, 20)
+e34  = ta.ema(close, 34)
+e50  = ta.ema(close, 50)
+e72  = ta.ema(close, 72)
+e77  = ta.ema(close, 77)
+e89  = ta.ema(close, 89)
+s200 = ta.sma(close, 200)
+s400 = ta.sma(close, 400)
+
+plot(vwap, "VWAP", color.yellow, 2)
+plot(e5, "EMA 5", color.new(color.white, 20), 1)
+plot(e9, "EMA 9", color.new(color.red, 10), 1)
+plot(e20, "EMA 20", color.new(color.blue, 0), 2)
+p34 = plot(e34, "EMA 34", color.new(color.blue, 70))
+p50 = plot(e50, "EMA 50", color.new(color.blue, 70))
+fill(p34, p50, e34 >= e50 ? color.new(color.blue, 75) : color.new(color.orange, 70), title = "Cloud 34/50")
+p72 = plot(showSlow ? e72 : na, "EMA 72", color.new(color.green, 80))
+p89 = plot(showSlow ? e89 : na, "EMA 89", color.new(color.green, 80))
+fill(p72, p89, e72 >= e89 ? color.new(color.green, 80) : color.new(color.red, 80), title = "Cloud 72/89")
+plot(showSlow ? e77 : na, "EMA 77", color.new(color.lime, 30), 1, plot.style_circles)
+plot(showSlow ? s200 : na, "SMA 200", color.new(color.purple, 0), 1)
+plot(showSlow ? s400 : na, "SMA 400", color.new(color.maroon, 0), 1)
+
+// ---------------- Volume ----------------
+volAvg = ta.sma(volume, volLen)
+rvol   = volAvg > 0 ? volume / volAvg : 0.0
+blkVol = math.sum(volume, 5)             // one 10-minute block on a 2-minute chart
+atr    = ta.atr(14)
+tol    = atr * tolAtr
+
+// ---------------- Sessions / day levels ----------------
+ymd    = year(time, tz) * 10000 + month(time, tz) * 100 + dayofmonth(time, tz)
+newDay = ymd != ymd[1]
+inPM   = not na(time(timeframe.period, "0400-0930", tz))
+inRTH  = not na(time(timeframe.period, "0930-1600", tz))
+inOR   = not na(time(timeframe.period, "0930-1000", tz))
+canEnt = not na(time(timeframe.period, "0932-1530", tz))
+flatT  = not na(time(timeframe.period, "1544-1600", tz))
+tenCls = inRTH and not inOR and (minute(time, tz) + 2) % 10 == 0   // this 2m bar closes a 10m candle
+
+[pdh, pdl] = request.security(syminfo.tickerid, "D", [high[1], low[1]], lookahead = barmerge.lookahead_on)
+
+var float pmh = na
+var float pml = na
+var float orH = na
+var float orL = na
+var float hod = na
+var float lod = na
+var float lastPH = na
+var float lastPL = na
+var float eqH = na
+var float eqL = na
+if newDay
+    pmh := na
+    pml := na
+    orH := na
+    orL := na
+    hod := na
+    lod := na
+    lastPH := na
+    lastPL := na
+    eqH := na
+    eqL := na
+if inPM
+    pmh := na(pmh) ? high : math.max(pmh, high)
+    pml := na(pml) ? low : math.min(pml, low)
+if inOR
+    orH := na(orH) ? high : math.max(orH, high)
+    orL := na(orL) ? low : math.min(orL, low)
+if inRTH
+    hod := na(hod) ? high : math.max(hod, high)
+    lod := na(lod) ? low : math.min(lod, low)
+orReady = inRTH and not inOR and not na(orH)
+
+// Equal highs / lows from 2m pivots
+ph = ta.pivothigh(high, 5, 5)
+pl = ta.pivotlow(low, 5, 5)
+if not na(ph)
+    if not na(lastPH) and math.abs(ph - lastPH) <= tol
+        eqH := math.max(ph, lastPH)
+    lastPH := ph
+if not na(pl)
+    if not na(lastPL) and math.abs(pl - lastPL) <= tol
+        eqL := math.min(pl, lastPL)
+    lastPL := pl
+
+plot(showPD ? pmh : na, "PM high", color.new(color.aqua, 20), 1, plot.style_linebr)
+plot(showPD ? pml : na, "PM low", color.new(color.aqua, 20), 1, plot.style_linebr)
+plot(showPD ? pdh : na, "Prior-day high", color.new(color.fuchsia, 20), 1, plot.style_stepline)
+plot(showPD ? pdl : na, "Prior-day low", color.new(color.fuchsia, 20), 1, plot.style_stepline)
+plot(showPD and orReady ? orH : na, "OR high (30m)", color.new(color.white, 30), 2, plot.style_linebr)
+plot(showPD and orReady ? orL : na, "OR low (30m)", color.new(color.white, 30), 2, plot.style_linebr)
+plot(showPD ? eqH : na, "Equal highs", color.new(color.orange, 30), 1, plot.style_circles)
+plot(showPD ? eqL : na, "Equal lows", color.new(color.orange, 30), 1, plot.style_circles)
+
+// ---------------- Retest engine ----------------
+// trig: the break happened (on volume). lvl: line price must retest and NOT close through.
+// inv: price that kills the idea. Returns [entry fired, stop price, stage]
+f_retest(bool trig, int dir, float lvl, float inv) =>
+    var int   st     = 0
+    var float brkVol = na
+    var float rtHi   = na
+    var float rtLo   = na
+    var float rtVol  = na
+    var float invLvl = na
+    var int   bars   = 0
+    bool  fire   = false
+    float stopPx = na
+    if trig
+        st     := 1
+        brkVol := volume
+        invLvl := inv
+        bars   := 0
+    else if st > 0
+        bars += 1
+        bool closedThru = dir == 1 ? close < lvl : close > lvl
+        bool killed     = dir == 1 ? close < invLvl : close > invLvl
+        bool touched    = dir == 1 ? low <= lvl + tol : high >= lvl - tol
+        if closedThru or killed or bars > maxWait
+            st := 0
+        else if st == 1
+            if touched and volume < brkVol
+                st    := 2
+                rtHi  := high
+                rtLo  := low
+                rtVol := volume
+        else if st == 2
+            bool brk = dir == 1 ? close > rtHi : close < rtLo
+            if brk and volume > rtVol and rvol >= 1.0
+                fire   := true
+                stopPx := dir == 1 ? math.min(rtLo, low) : math.max(rtHi, high)
+                st     := 0
+            else if touched and volume < brkVol
+                rtHi  := high
+                rtLo  := low
+                rtVol := volume
+    [fire, stopPx, st]
+
+// ---------------- S1: 30m opening range break ----------------
+var bool orbUpDone = false
+var bool orbDnDone = false
+if newDay
+    orbUpDone := false
+    orbDnDone := false
+blkAvg  = volAvg * 5
+orbUpT  = s1 and orReady and tenCls and close > orH and not orbUpDone and blkVol >= blkAvg * volMult
+orbDnT  = s1 and orReady and tenCls and close < orL and not orbDnDone and blkVol >= blkAvg * volMult
+if orbUpT
+    orbUpDone := true
+if orbDnT
+    orbDnDone := true
+[s1L, s1LStop, s1LSt] = f_retest(orbUpT, 1, e20, orH)
+[s1S, s1SStop, s1SSt] = f_retest(orbDnT, -1, e20, orL)
+
+// ---------------- S2: liquidity sweep reversal ----------------
+swBullLvl = (not na(pml) and low < pml and close > pml) or (not na(pdl) and low < pdl and close > pdl) or (orReady and low < orL and close > orL) or (not na(eqL) and low < eqL and close > eqL)
+swBearLvl = (not na(pmh) and high > pmh and close < pmh) or (not na(pdh) and high > pdh and close < pdh) or (orReady and high > orH and close < orH) or (not na(eqH) and high > eqH and close < eqH)
+var float swLow  = na
+var float swHigh = na
+var int   swLBar = na
+var int   swHBar = na
+if inRTH and swBullLvl
+    swLow  := low
+    swLBar := bar_index
+if inRTH and swBearLvl
+    swHigh := high
+    swHBar := bar_index
+reclaimUp = s2 and not na(swLBar) and bar_index - swLBar <= 15 and close > e9 and close > e20 and close[1] <= e20[1] and rvol >= volMult
+reclaimDn = s2 and not na(swHBar) and bar_index - swHBar <= 15 and close < e9 and close < e20 and close[1] >= e20[1] and rvol >= volMult
+if reclaimUp
+    swLBar := na
+if reclaimDn
+    swHBar := na
+[s2L, s2LStop, s2LSt] = f_retest(reclaimUp, 1, e20, swLow)
+[s2S, s2SStop, s2SSt] = f_retest(reclaimDn, -1, e20, swHigh)
+
+// ---------------- S3: VWAP reclaim / loss ----------------
+lo10 = ta.lowest(low, 10)
+hi10 = ta.highest(high, 10)
+vwUpT = s3 and inRTH and close > vwap and close[1] <= vwap[1] and e9 > e20 and rvol >= volMult
+vwDnT = s3 and inRTH and close < vwap and close[1] >= vwap[1] and e9 < e20 and rvol >= volMult
+[s3L, s3LStop, s3LSt] = f_retest(vwUpT, 1, vwap, lo10)
+[s3S, s3SStop, s3SSt] = f_retest(vwDnT, -1, vwap, hi10)
+
+// ---------------- Targets ----------------
+f_next(float[] lv, float px, int dir, float minD) =>
+    float best = na
+    for l in lv
+        if not na(l)
+            if dir == 1 and l > px + minD
+                best := na(best) ? l : math.min(best, l)
+            else if dir == -1 and l < px - minD
+                best := na(best) ? l : math.max(best, l)
+    best
+
+fmt(float x) => na(x) ? "null" : str.tostring(x, "#.##")
+
+// ---------------- Trade state ----------------
+var int    pos   = 0
+var float  entry = na
+var float  stop  = na
+var float  t1    = na
+var float  t2    = na
+var bool   t1Hit = false
+var string strat = ""
+
+exitMsg = ""
+t1Msg   = ""
+if pos == 1
+    if low <= stop
+        exitMsg := t1Hit ? "SELL REST CALLS - breakeven stop" : "SELL CALLS - STOP"
+    else if high >= t2
+        exitMsg := "SELL REST CALLS - Target 2"
+    else if not t1Hit and high >= t1
+        t1Hit := true
+        stop  := entry
+        t1Msg := "SELL HALF CALLS - Target 1, stop to breakeven"
+    else if t1Hit and close < e9
+        exitMsg := "SELL REST CALLS - closed below 9 EMA"
+    else if not t1Hit and close < e20
+        exitMsg := "SELL CALLS - closed below 20 EMA"
+    else if flatT
+        exitMsg := "SELL CALLS - 3:45 flat"
+else if pos == -1
+    if high >= stop
+        exitMsg := t1Hit ? "SELL REST PUTS - breakeven stop" : "SELL PUTS - STOP"
+    else if low <= t2
+        exitMsg := "SELL REST PUTS - Target 2"
+    else if not t1Hit and low <= t1
+        t1Hit := true
+        stop  := entry
+        t1Msg := "SELL HALF PUTS - Target 1, stop to breakeven"
+    else if t1Hit and close > e9
+        exitMsg := "SELL REST PUTS - closed above 9 EMA"
+    else if not t1Hit and close > e20
+        exitMsg := "SELL PUTS - closed above 20 EMA"
+    else if flatT
+        exitMsg := "SELL PUTS - 3:45 flat"
+
+exited = exitMsg != ""
+if exited
+    pos := 0
+
+longFire  = s2L or s1L or s3L
+shortFire = s2S or s1S or s3S
+lName  = s2L ? "S2 SWEEP REVERSAL" : s1L ? "S1 ORB 30m" : "S3 VWAP RECLAIM"
+sName  = s2S ? "S2 SWEEP REVERSAL" : s1S ? "S1 ORB 30m" : "S3 VWAP LOSS"
+lStop  = s2L ? s2LStop : s1L ? s1LStop : s3LStop
+sStop  = s2S ? s2SStop : s1S ? s1SStop : s3SStop
+levels = array.from(pmh, pml, pdh, pdl, orH, orL, eqH, eqL, hod, lod, vwap)
+
+entryMsg = ""
+if pos == 0 and not exited and canEnt
+    if longFire and not shortFire
+        risk = close - lStop
+        if risk > 0
+            pos   := 1
+            entry := close
+            stop  := lStop
+            strat := lName
+            a = f_next(levels, close, 1, risk * minR)
+            t1 := na(a) ? close + risk : a
+            b = f_next(levels, t1, 1, risk * minR)
+            t2 := na(b) ? close + 2 * risk : b
+            t1Hit := false
+            entryMsg := "BUY CALLS"
+    else if shortFire and not longFire
+        risk = sStop - close
+        if risk > 0
+            pos   := -1
+            entry := close
+            stop  := sStop
+            strat := sName
+            a = f_next(levels, close, -1, risk * minR)
+            t1 := na(a) ? close - risk : a
+            b = f_next(levels, t1, -1, risk * minR)
+            t2 := na(b) ? close - 2 * risk : b
+            t1Hit := false
+            entryMsg := "BUY PUTS"
+
+inPos = pos != 0
+plot(inPos ? stop : na, "Stop", color.red, 2, plot.style_linebr)
+plot(inPos ? t1 : na, "Target 1", color.lime, 1, plot.style_linebr)
+plot(inPos ? t2 : na, "Target 2", color.lime, 2, plot.style_linebr)
+
+if entryMsg != ""
+    isL = pos == 1
+    label.new(bar_index, isL ? low : high, (isL ? "CALLS\n" : "PUTS\n") + strat + "\nvol " + str.tostring(rvol, "#.#") + "x", style = isL ? label.style_label_up : label.style_label_down, color = isL ? color.green : color.red, textcolor = color.white, size = size.small)
+if t1Msg != ""
+    label.new(bar_index, pos == 1 ? high : low, "T1 half", style = pos == 1 ? label.style_label_down : label.style_label_up, color = color.orange, textcolor = color.black, size = size.tiny)
+if exited
+    label.new(bar_index, close, "EXIT", style = label.style_label_left, color = color.gray, textcolor = color.white, size = size.tiny)
+
+// Retest markers: R = retest accepted (waiting for confirmation candle)
+anyRetestL = (s1LSt == 2 and s1LSt[1] != 2) or (s2LSt == 2 and s2LSt[1] != 2) or (s3LSt == 2 and s3LSt[1] != 2)
+anyRetestS = (s1SSt == 2 and s1SSt[1] != 2) or (s2SSt == 2 and s2SSt[1] != 2) or (s3SSt == 2 and s3SSt[1] != 2)
+plotshape(anyRetestL, "Retest (long)", shape.circle, location.belowbar, color.new(color.lime, 0), size = size.tiny, text = "R")
+plotshape(anyRetestS, "Retest (short)", shape.circle, location.abovebar, color.new(color.red, 0), size = size.tiny, text = "R")
+
+// ---------------- Dashboard ----------------
+volWord = rvol >= volMult ? "STRONG" : rvol >= 1.0 ? "normal" : "weak"
+var table dash = table.new(position.top_right, 2, 6, bgcolor = color.new(color.black, 15), border_width = 1)
+if barstate.islast
+    table.cell(dash, 0, 0, "Chart", text_color = color.white)
+    table.cell(dash, 1, 0, timeframe.period == "2" ? "2m OK" : "SWITCH TO 2m", text_color = timeframe.period == "2" ? color.lime : color.red)
+    table.cell(dash, 0, 1, "Volume", text_color = color.white)
+    table.cell(dash, 1, 1, volWord + " " + str.tostring(rvol, "#.#") + "x", text_color = rvol >= volMult ? color.lime : rvol >= 1.0 ? color.white : color.gray)
+    table.cell(dash, 0, 2, "vs VWAP", text_color = color.white)
+    table.cell(dash, 1, 2, close > vwap ? "above" : "below", text_color = close > vwap ? color.lime : color.red)
+    table.cell(dash, 0, 3, "9 vs 20", text_color = color.white)
+    table.cell(dash, 1, 3, e9 > e20 ? "bull" : "bear", text_color = e9 > e20 ? color.lime : color.red)
+    table.cell(dash, 0, 4, "Position", text_color = color.white)
+    table.cell(dash, 1, 4, pos == 1 ? "CALLS " + strat : pos == -1 ? "PUTS " + strat : "flat", text_color = color.white)
+    table.cell(dash, 0, 5, "PM data", text_color = color.white)
+    table.cell(dash, 1, 5, na(pmh) ? "turn ON ext. hours" : "OK", text_color = na(pmh) ? color.red : color.lime)
+
+// ---------------- Alerts (JSON for n8n webhook) ----------------
+f_json(string act, string note) =>
+    '{"key":"' + hookKey + '","ticker":"' + syminfo.ticker + '","action":"' + act + '","strategy":"' + strat + '","price":' + fmt(close) + ',"stop":' + fmt(stop) + ',"t1":' + fmt(t1) + ',"t2":' + fmt(t2) + ',"rvol":' + fmt(rvol) + ',"vwap":' + fmt(vwap) + ',"note":"' + note + '","time":"' + str.format_time(time_close, "yyyy-MM-dd HH:mm", tz) + '"}'
+
+if entryMsg != ""
+    alert(f_json(entryMsg, "entry after successful retest + volume confirmation"), alert.freq_once_per_bar_close)
+if t1Msg != ""
+    alert(f_json(t1Msg, "take half"), alert.freq_once_per_bar_close)
+if exited
+    alert(f_json(exitMsg, "exit"), alert.freq_once_per_bar_close)
+
+// END OF SCRIPT

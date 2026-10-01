@@ -1,0 +1,40 @@
+{
+  "name": "Chart Commander - TradingView Signals",
+  "nodes": [
+    {
+      "parameters": { "httpMethod": "POST", "path": "tv-signal", "options": {} },
+      "id": "a1", "name": "TV Webhook (POST)", "type": "n8n-nodes-base.webhook", "typeVersion": 2,
+      "position": [0, 0], "webhookId": "cc-tv-signal"
+    },
+    {
+      "parameters": {
+        "jsCode": "const KEY = 'change-me'; // must match the Pine input 'Webhook key'\nconst store = $getWorkflowStaticData('global');\nstore.signals = store.signals || [];\nfor (const item of $input.all()) {\n  let b = item.json.body;\n  if (typeof b === 'string') { try { b = JSON.parse(b); } catch (e) { b = { note: b }; } }\n  if (!b || b.key !== KEY) continue;\n  delete b.key;\n  b.received = new Date().toISOString();\n  store.signals.unshift(b);\n}\nstore.signals = store.signals.slice(0, 300);\nreturn [{ json: { ok: true, stored: store.signals.length } }];"
+      },
+      "id": "a2", "name": "Save signal", "type": "n8n-nodes-base.code", "typeVersion": 2, "position": [260, 0]
+    },
+    {
+      "parameters": { "httpMethod": "GET", "path": "signals", "responseMode": "responseNode", "options": {} },
+      "id": "b1", "name": "Dashboard (GET)", "type": "n8n-nodes-base.webhook", "typeVersion": 2,
+      "position": [0, 260], "webhookId": "cc-signals-page"
+    },
+    {
+      "parameters": {
+        "jsCode": "const s = ($getWorkflowStaticData('global').signals || []);\nconst esc = v => String(v ?? '').replace(/[&<>\"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;'}[c]));\nconst col = a => /BUY CALLS/.test(a) ? '#16a34a' : /BUY PUTS/.test(a) ? '#dc2626' : /HALF/.test(a) ? '#f59e0b' : '#6b7280';\nconst rows = s.map(x => `<tr><td>${esc(x.time)}</td><td><b>${esc(x.ticker)}</b></td><td style=\"color:#fff;background:${col(x.action)}\">${esc(x.action)}</td><td>${esc(x.strategy)}</td><td>${esc(x.price)}</td><td>${esc(x.stop)}</td><td>${esc(x.t1)}</td><td>${esc(x.t2)}</td><td>${esc(x.rvol)}x</td></tr>`).join('');\nconst html = `<!doctype html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><meta http-equiv=\"refresh\" content=\"10\"><title>CC Signals</title><style>body{font-family:system-ui;background:#0b0f14;color:#e5e7eb;margin:16px}table{border-collapse:collapse;width:100%;font-size:14px}td,th{padding:6px 8px;border-bottom:1px solid #1f2937;text-align:left}th{color:#9ca3af}</style></head><body><h2>Chart Commander signals</h2><p style=\"color:#9ca3af\">Auto-refreshes every 10s. Newest first. Times ET.</p><table><tr><th>Time</th><th>Ticker</th><th>Action</th><th>Strategy</th><th>Price</th><th>Stop</th><th>T1</th><th>T2</th><th>Vol</th></tr>${rows || '<tr><td colspan=9>No signals yet</td></tr>'}</table></body></html>`;\nreturn [{ json: { html } }];"
+      },
+      "id": "b2", "name": "Build page", "type": "n8n-nodes-base.code", "typeVersion": 2, "position": [260, 260]
+    },
+    {
+      "parameters": {
+        "respondWith": "text", "responseBody": "={{ $json.html }}",
+        "options": { "responseHeaders": { "entries": [ { "name": "Content-Type", "value": "text/html; charset=utf-8" } ] } }
+      },
+      "id": "b3", "name": "Return page", "type": "n8n-nodes-base.respondToWebhook", "typeVersion": 1.1, "position": [520, 260]
+    }
+  ],
+  "connections": {
+    "TV Webhook (POST)": { "main": [[ { "node": "Save signal", "type": "main", "index": 0 } ]] },
+    "Dashboard (GET)": { "main": [[ { "node": "Build page", "type": "main", "index": 0 } ]] },
+    "Build page": { "main": [[ { "node": "Return page", "type": "main", "index": 0 } ]] }
+  },
+  "settings": { "executionOrder": "v1" }
+}
