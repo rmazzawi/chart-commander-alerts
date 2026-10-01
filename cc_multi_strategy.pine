@@ -424,5 +424,7 @@ plot(actCode, "ActionCode", display = display.data_window)
 plot(stratCode, "StrategyCode", display = display.data_window)
 plot(rvol, "RVOL", display = display.data_window)
 alertcondition(actCode != 0, "CC-Multi ANY SIGNAL (use for watchlists)", '{"src":"cc-ac","ticker":"{{ticker}}","code":{{plot("ActionCode")}},"strat":{{plot("StrategyCode")}},"price":{{close}},"stop":{{plot("Stop")}},"t1":{{plot("Target 1")}},"t2":{{plot("Target 2")}},"rvol":{{plot("RVOL")}},"time":"{{timenow}}"}')
+alertcondition(actCode == 1 or actCode == -1, "CC-Multi ENTRIES (trigger: once per bar close)", '{"src":"cc-ac","ticker":"{{ticker}}","code":{{plot("ActionCode")}},"strat":{{plot("StrategyCode")}},"price":{{close}},"stop":{{plot("Stop")}},"t1":{{plot("Target 1")}},"t2":{{plot("Target 2")}},"rvol":{{plot("RVOL")}},"time":"{{timenow}}"}')
+alertcondition(math.abs(actCode) >= 2, "CC-Multi EXITS + T1 (trigger: once per bar)", '{"src":"cc-ac","ticker":"{{ticker}}","code":{{plot("ActionCode")}},"strat":{{plot("StrategyCode")}},"price":{{close}},"stop":{{plot("Stop")}},"t1":{{plot("Target 1")}},"t2":{{plot("Target 2")}},"rvol":{{plot("RVOL")}},"time":"{{timenow}}"}')
 
 // END OF SCRIPT
