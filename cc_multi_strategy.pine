@@ -20,6 +20,14 @@ gR      = "Risk & exits"
 maxWait = input.int(30, "Max bars to wait for retest/confirm", minval = 5, group = gR)
 tolAtr  = input.float(0.15, "Retest touch tolerance (x ATR)", step = 0.05, group = gR)
 minR    = input.float(0.5, "Min distance to target (x risk)", step = 0.1, group = gR)
+t1Cap   = input.float(1.5, "Target 1 max (x risk)", step = 0.25, group = gR)
+t2Cap   = input.float(3.0, "Target 2 max (x risk)", step = 0.25, group = gR)
+
+gF      = "Filters"
+useHtf  = input.bool(true, "10m trend filter for S1 & S3 (calls only if 10m bullish, puts only if bearish)", group = gF)
+useChop = input.bool(true, "Chop filter for S3 (skip flat VWAP / repeated crosses)", group = gF)
+chopX   = input.int(4, "Chop = VWAP crosses in last 20 bars >=", minval = 2, group = gF)
+only2m  = input.bool(true, "Signals only on 2-minute chart", group = gF)
 
 gA      = "Alerts / webhook"
 hookKey = input.string("change-me", "Webhook key (must match n8n)", group = gA)
@@ -29,6 +37,7 @@ showPD   = input.bool(true, "Show levels (PM, PD, OR, EQ)", group = gD)
 showSlow = input.bool(true, "Show slow lines (77 EMA, 200/400 SMA, 72/89 cloud)", group = gD)
 
 tz = "America/New_York"
+tfOK = not only2m or timeframe.period == "2"
 
 // ---------------- Lines (your settings) ----------------
 vwap = ta.vwap(hlc3)
@@ -172,6 +181,16 @@ f_retest(bool trig, int dir, float lvl, float inv) =>
                 rtVol := volume
     [fire, stopPx, st]
 
+// ---------------- Filters ----------------
+// Last COMPLETED 10-minute candle (no repaint)
+[hC, hV, h34, h50] = request.security(syminfo.tickerid, "10", [close[1], ta.vwap(hlc3)[1], ta.ema(close, 34)[1], ta.ema(close, 50)[1]], lookahead = barmerge.lookahead_on)
+htfBull = not useHtf or (hC > hV and hC > math.max(h34, h50))
+htfBear = not useHtf or (hC < hV and hC < math.min(h34, h50))
+vwX     = (close > vwap) != (close[1] > vwap[1]) ? 1 : 0
+vwCross = math.sum(vwX, 20)
+vwFlat  = math.abs(vwap - vwap[15]) < atr * 0.3
+chop    = useChop and (vwCross >= chopX or vwFlat)
+
 // ---------------- S1: 30m opening range break ----------------
 var bool orbUpDone = false
 var bool orbDnDone = false
@@ -179,8 +198,8 @@ if newDay
     orbUpDone := false
     orbDnDone := false
 blkAvg  = volAvg * 5
-orbUpT  = s1 and orReady and tenCls and close > orH and not orbUpDone and blkVol >= blkAvg * volMult
-orbDnT  = s1 and orReady and tenCls and close < orL and not orbDnDone and blkVol >= blkAvg * volMult
+orbUpT  = s1 and tfOK and htfBull and orReady and tenCls and close > orH and not orbUpDone and blkVol >= blkAvg * volMult
+orbDnT  = s1 and tfOK and htfBear and orReady and tenCls and close < orL and not orbDnDone and blkVol >= blkAvg * volMult
 if orbUpT
     orbUpDone := true
 if orbDnT
@@ -201,8 +220,8 @@ if inRTH and swBullLvl
 if inRTH and swBearLvl
     swHigh := high
     swHBar := bar_index
-reclaimUp = s2 and not na(swLBar) and bar_index - swLBar <= 15 and close > e9 and close > e20 and close[1] <= e20[1] and rvol >= volMult
-reclaimDn = s2 and not na(swHBar) and bar_index - swHBar <= 15 and close < e9 and close < e20 and close[1] >= e20[1] and rvol >= volMult
+reclaimUp = s2 and tfOK and not na(swLBar) and bar_index - swLBar <= 15 and close > e9 and close > e20 and close[1] <= e20[1] and rvol >= volMult
+reclaimDn = s2 and tfOK and not na(swHBar) and bar_index - swHBar <= 15 and close < e9 and close < e20 and close[1] >= e20[1] and rvol >= volMult
 if reclaimUp
     swLBar := na
 if reclaimDn
@@ -213,8 +232,8 @@ if reclaimDn
 // ---------------- S3: VWAP reclaim / loss ----------------
 lo10 = ta.lowest(low, 10)
 hi10 = ta.highest(high, 10)
-vwUpT = s3 and inRTH and close > vwap and close[1] <= vwap[1] and e9 > e20 and rvol >= volMult
-vwDnT = s3 and inRTH and close < vwap and close[1] >= vwap[1] and e9 < e20 and rvol >= volMult
+vwUpT = s3 and tfOK and htfBull and not chop and inRTH and close > vwap and close[1] <= vwap[1] and e9 > e20 and rvol >= volMult
+vwDnT = s3 and tfOK and htfBear and not chop and inRTH and close < vwap and close[1] >= vwap[1] and e9 < e20 and rvol >= volMult
 [s3L, s3LStop, s3LSt] = f_retest(vwUpT, 1, vwap, lo10)
 [s3S, s3SStop, s3SSt] = f_retest(vwDnT, -1, vwap, hi10)
 
@@ -292,7 +311,7 @@ sStop  = s2S ? s2SStop : s1S ? s1SStop : s3SStop
 levels = array.from(pmh, pml, pdh, pdl, orH, orL, eqH, eqL, hod, lod, vwap)
 
 entryMsg = ""
-if pos == 0 and not exited and canEnt and barstate.isconfirmed
+if pos == 0 and not exited and canEnt and tfOK and barstate.isconfirmed
     if longFire and not shortFire
         risk = close - lStop
         if risk > 0
@@ -301,9 +320,10 @@ if pos == 0 and not exited and canEnt and barstate.isconfirmed
             stop  := lStop
             strat := lName
             a = f_next(levels, close, 1, risk * minR)
-            t1 := na(a) ? close + risk : a
+            t1 := na(a) ? close + risk : math.min(a, close + risk * t1Cap)
             b = f_next(levels, t1, 1, risk * minR)
-            t2 := na(b) ? close + 2 * risk : b
+            t2 := na(b) ? close + risk * t2Cap : math.min(b, close + risk * t2Cap)
+            t2 := t2 <= t1 ? math.max(t1 + risk * 0.5, close + risk * t2Cap) : t2
             t1Hit := false
             trailOn := false
             entryBar := bar_index
@@ -316,9 +336,10 @@ if pos == 0 and not exited and canEnt and barstate.isconfirmed
             stop  := sStop
             strat := sName
             a = f_next(levels, close, -1, risk * minR)
-            t1 := na(a) ? close - risk : a
+            t1 := na(a) ? close - risk : math.max(a, close - risk * t1Cap)
             b = f_next(levels, t1, -1, risk * minR)
-            t2 := na(b) ? close - 2 * risk : b
+            t2 := na(b) ? close - risk * t2Cap : math.max(b, close - risk * t2Cap)
+            t2 := t2 >= t1 ? math.min(t1 - risk * 0.5, close - risk * t2Cap) : t2
             t1Hit := false
             trailOn := false
             entryBar := bar_index
@@ -363,7 +384,7 @@ plotshape(anyRetestS, "Retest (short)", shape.circle, location.abovebar, color.n
 
 // ---------------- Dashboard ----------------
 volWord = rvol >= volMult ? "STRONG" : rvol >= 1.0 ? "normal" : "weak"
-var table dash = table.new(position.top_right, 2, 6, bgcolor = color.new(color.black, 15), border_width = 1)
+var table dash = table.new(position.top_right, 2, 8, bgcolor = color.new(color.black, 15), border_width = 1)
 if barstate.islast
     table.cell(dash, 0, 0, "Chart", text_color = color.white)
     table.cell(dash, 1, 0, timeframe.period == "2" ? "2m OK" : "SWITCH TO 2m", text_color = timeframe.period == "2" ? color.lime : color.red)
@@ -377,6 +398,10 @@ if barstate.islast
     table.cell(dash, 1, 4, pos == 1 ? "CALLS " + strat : pos == -1 ? "PUTS " + strat : "flat", text_color = color.white)
     table.cell(dash, 0, 5, "PM data", text_color = color.white)
     table.cell(dash, 1, 5, na(pmh) ? "turn ON ext. hours" : "OK", text_color = na(pmh) ? color.red : color.lime)
+    table.cell(dash, 0, 6, "10m trend", text_color = color.white)
+    table.cell(dash, 1, 6, hC > hV and hC > math.max(h34, h50) ? "BULL (calls)" : hC < hV and hC < math.min(h34, h50) ? "BEAR (puts)" : "mixed", text_color = hC > hV and hC > math.max(h34, h50) ? color.lime : hC < hV and hC < math.min(h34, h50) ? color.red : color.gray)
+    table.cell(dash, 0, 7, "S3 chop", text_color = color.white)
+    table.cell(dash, 1, 7, chop ? "CHOP - S3 off" : "clean", text_color = chop ? color.orange : color.lime)
 
 // ---------------- Alerts (JSON for n8n webhook) ----------------
 f_json(string act, string note) =>
