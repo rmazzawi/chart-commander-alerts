@@ -1,0 +1,651 @@
+{
+  "name": "Reya Office – 2 Telegram approvals + 6h auto-deny",
+  "nodes": [
+    {
+      "parameters": {
+        "updates": [
+          "callback_query"
+        ],
+        "additionalFields": {}
+      },
+      "id": "4d1c27e2-ddfe-5ab1-8d61-b03d2bbf2419",
+      "name": "Telegram button pressed",
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        0
+      ],
+      "credentials": {
+        "telegramApi": {
+          "id": "USmj7xUTRbgSc4ZB",
+          "name": "Reya B2B bot"
+        }
+      },
+      "webhookId": "57207ff5-c797-5655-91df-6d02e7e9714b"
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst TZ='Asia/Amman';\nconst SENT='أُرسلت إلى الجهة', READY='جاهزة للمراجعة', DENIED='مرفوض - انتهت المهلة', EXCL='مستبعد - صانع شموع';\nconst NP='غير منشور', NV='غير متحقق';\nconst APPROVERS=[8469419204, 1798976243];\nconst MODEL='claude-sonnet-5';\nconst APPROVAL_HOURS=6;\nconst s=v=>String(v==null?'':v).trim();\nconst today=()=>new Date().toLocaleDateString('en-CA',{timeZone:TZ});\nconst nd=v=>{v=s(v);if(!v)return '';if(/^\\d{4}-\\d{2}-\\d{2}/.test(v))return v.slice(0,10);const m=v.match(/^(\\d{1,2})\\/(\\d{1,2})\\/(\\d{4})/);return m?`${m[3]}-${m[1].padStart(2,'0')}-${m[2].padStart(2,'0')}`:'';};\nconst addDays=(d,n)=>{const t=new Date(d+'T00:00:00Z');t.setUTCDate(t.getUTCDate()+n);return t.toISOString().slice(0,10);};\nconst avail=v=>{v=s(v);return v!==''&&!v.startsWith(NP)&&!v.startsWith(NV)&&!v.startsWith('غير متوفر');};\nconst parseJson=t=>{t=String(t||'').replace(/```json|```/g,'');const a=t.search(/[\\[{]/);if(a<0)throw new Error('no JSON in model output');const close=t[a]==='['?']':'}';const b=t.lastIndexOf(close);return JSON.parse(t.slice(a,b+1));};\nconst claudeText=r=>(r.content||[]).filter(c=>c.type==='text').map(c=>c.text).join('\\n');\nconst clean=v=>s(v).replace(/<\\/?cite[^>]*>/g,'').replace(/\\(?cite index=\"[^\"]*\">/g,'').trim();\nconst esc=x=>String(x).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\"/g,'&quot;');\n// 6 approval hours counted only while awake (08:00-22:00 Amman, UTC+3): a card at 21:00 expires 13:00 next day\nconst deadlineIso=()=>{const OFF=3*3600e3,START=8,END=22;let t=Date.now(),left=APPROVAL_HOURS*3600e3;\n  while(left>0){const l=new Date(t+OFF);const h=l.getUTCHours()+l.getUTCMinutes()/60+l.getUTCSeconds()/3600;\n    if(h<START){t+=(START-h)*3600e3;continue;}if(h>=END){t+=(24-h+START)*3600e3;continue;}\n    const step=Math.min(left,(END-h)*3600e3);t+=step;left-=step;}\n  return new Date(t).toISOString();};\nconst fmtAmman=iso=>new Date(iso).toLocaleString('en-GB',{timeZone:TZ,weekday:'short',day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'});\n// Categories (ز flowers retired; ط spas and ح home decor added per CLAUDE.md)\nconst CATS=['أ — منظمو حفلات الزفاف','ب — متاجر هدايا المعمودية','ج — متاجر الشموع المميزة (بائعو تجزئة فقط)','هـ — محال الكيك والمناسبات','و — محال الهدايا في فنادق 5 نجوم','ط — سبا نسائي (سبا للسيدات)','ح — محال الديكور المنزلي والمفاهيم'];\nconst CODE={'أ':'A','ب':'B','ج':'C','ه':'H','و':'W','ط':'S','ح':'D','ز':'Z'};\n// Hard rule: never contact candle makers / producers / own-brand candle shops\nconst MAKER_NAME=/candle|كاندل|شموع|شمع/i;\nconst MAKER_TXT=/(مصنع|تصنيع|يصنع|تصنع|صانع|منتج|مصبوب|يدوي)[^.؛،\\n]{0,25}(شمع|شموع)|(شمع|شموع)[^.؛،\\n]{0,15}(يدوي|مصبوب|صويا)|candle ?(maker|brand|studio|factory|shop)|hand-?poured/i;\nconst isCandleMaker=r=>MAKER_NAME.test(s(r.business_name)+' '+s(r.english_name))||MAKER_TXT.test([r.verification_notes,r.other_channels,r.relevance,r.description].map(s).join(' '));\n\nconst cq=$input.first().json.callback_query;\nif(!cq)return [];\nconst [act,record_id]=String(cq.data||'').split('|');\nreturn [{json:{act,record_id,from_id:cq.from.id,who:cq.from.first_name||cq.from.username||String(cq.from.id),callback_query_id:cq.id}}];\n"
+      },
+      "id": "9750e7c9-f57e-5b9f-a2bd-1a24c5e71eb7",
+      "name": "Parse tap",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1jSeftb1cyc9YYg7zTRPDJFGgIDltvQLJKjF3LRB3zHI",
+          "mode": "id",
+          "cachedResultName": "Reya_B2B_Master_Sheet"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Sheet1",
+          "mode": "name"
+        },
+        "filtersUI": {
+          "values": [
+            {
+              "lookupColumn": "record_id",
+              "lookupValue": "={{ $json.record_id }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "ad4d1106-082e-5a90-a598-0a460bf8d098",
+      "name": "Read row",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        440,
+        0
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "hGcn8iQaUPZNWaG9",
+          "name": "Reya Google Sheets"
+        }
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst TZ='Asia/Amman';\nconst SENT='أُرسلت إلى الجهة', READY='جاهزة للمراجعة', DENIED='مرفوض - انتهت المهلة', EXCL='مستبعد - صانع شموع';\nconst NP='غير منشور', NV='غير متحقق';\nconst APPROVERS=[8469419204, 1798976243];\nconst MODEL='claude-sonnet-5';\nconst APPROVAL_HOURS=6;\nconst s=v=>String(v==null?'':v).trim();\nconst today=()=>new Date().toLocaleDateString('en-CA',{timeZone:TZ});\nconst nd=v=>{v=s(v);if(!v)return '';if(/^\\d{4}-\\d{2}-\\d{2}/.test(v))return v.slice(0,10);const m=v.match(/^(\\d{1,2})\\/(\\d{1,2})\\/(\\d{4})/);return m?`${m[3]}-${m[1].padStart(2,'0')}-${m[2].padStart(2,'0')}`:'';};\nconst addDays=(d,n)=>{const t=new Date(d+'T00:00:00Z');t.setUTCDate(t.getUTCDate()+n);return t.toISOString().slice(0,10);};\nconst avail=v=>{v=s(v);return v!==''&&!v.startsWith(NP)&&!v.startsWith(NV)&&!v.startsWith('غير متوفر');};\nconst parseJson=t=>{t=String(t||'').replace(/```json|```/g,'');const a=t.search(/[\\[{]/);if(a<0)throw new Error('no JSON in model output');const close=t[a]==='['?']':'}';const b=t.lastIndexOf(close);return JSON.parse(t.slice(a,b+1));};\nconst claudeText=r=>(r.content||[]).filter(c=>c.type==='text').map(c=>c.text).join('\\n');\nconst clean=v=>s(v).replace(/<\\/?cite[^>]*>/g,'').replace(/\\(?cite index=\"[^\"]*\">/g,'').trim();\nconst esc=x=>String(x).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\"/g,'&quot;');\n// 6 approval hours counted only while awake (08:00-22:00 Amman, UTC+3): a card at 21:00 expires 13:00 next day\nconst deadlineIso=()=>{const OFF=3*3600e3,START=8,END=22;let t=Date.now(),left=APPROVAL_HOURS*3600e3;\n  while(left>0){const l=new Date(t+OFF);const h=l.getUTCHours()+l.getUTCMinutes()/60+l.getUTCSeconds()/3600;\n    if(h<START){t+=(START-h)*3600e3;continue;}if(h>=END){t+=(24-h+START)*3600e3;continue;}\n    const step=Math.min(left,(END-h)*3600e3);t+=step;left-=step;}\n  return new Date(t).toISOString();};\nconst fmtAmman=iso=>new Date(iso).toLocaleString('en-GB',{timeZone:TZ,weekday:'short',day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'});\n// Categories (ز flowers retired; ط spas and ح home decor added per CLAUDE.md)\nconst CATS=['أ — منظمو حفلات الزفاف','ب — متاجر هدايا المعمودية','ج — متاجر الشموع المميزة (بائعو تجزئة فقط)','هـ — محال الكيك والمناسبات','و — محال الهدايا في فنادق 5 نجوم','ط — سبا نسائي (سبا للسيدات)','ح — محال الديكور المنزلي والمفاهيم'];\nconst CODE={'أ':'A','ب':'B','ج':'C','ه':'H','و':'W','ط':'S','ح':'D','ز':'Z'};\n// Hard rule: never contact candle makers / producers / own-brand candle shops\nconst MAKER_NAME=/candle|كاندل|شموع|شمع/i;\nconst MAKER_TXT=/(مصنع|تصنيع|يصنع|تصنع|صانع|منتج|مصبوب|يدوي)[^.؛،\\n]{0,25}(شمع|شموع)|(شمع|شموع)[^.؛،\\n]{0,15}(يدوي|مصبوب|صويا)|candle ?(maker|brand|studio|factory|shop)|hand-?poured/i;\nconst isCandleMaker=r=>MAKER_NAME.test(s(r.business_name)+' '+s(r.english_name))||MAKER_TXT.test([r.verification_notes,r.other_channels,r.relevance,r.description].map(s).join(' '));\n\nconst p=$('Parse tap').first().json;\nconst row=($input.all()[0]||{json:{}}).json;\nconst out={callback_query_id:p.callback_query_id,send_email:false,has_update:false,reply:'',update:{record_id:row.record_id||p.record_id}};\nconst fin=text=>{out.reply=text.slice(0,190);return [{json:out}];};\nif(!APPROVERS.includes(p.from_id))return fin('Not authorised to use this bot.');\nif(p.act==='n')return fin('This channel is not available for this business.');\nif(!row.record_id)return fin('Record not found: '+p.record_id);\nconst t=today();\nconst type=s(row.draft_type)||'first';\nif(!['first','reminder'].includes(type))return fin('⛔ No open approval for this business ('+type+').');\nif(s(row.approval_deadline)&&Date.now()>new Date(row.approval_deadline).getTime())\n  return fin('⏰ Approval window ('+APPROVAL_HOURS+'h) closed — automatically DENIED. Nothing was sent.');\nconst note=(old,add)=>[s(old),add].filter(Boolean).join(' | ');\nconst CH={e:['email_status','Email'],w:['whatsapp_status','WhatsApp'],m:['messenger_status','Messenger'],i:['instagram_dm_status','Instagram']};\nconst chs=['email_status','whatsapp_status','messenger_status','instagram_dm_status'];\nconst availN=[row.email,row.whatsapp_number,row.facebook,row.instagram].filter(avail).length;\nconst U=out.update;\nconst prepEmail=()=>{const em=s(row.email);\n  if(!/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(em)||!s(row.draft_email_body))return false;\n  out.send_email=true;out.email_to=em;out.email_subject=s(row.draft_email_subject);out.email_body=s(row.draft_email_body);return true;};\nif(type==='first'){\n  if(p.act==='s'){\n    if(chs.some(k=>s(row[k])===SENT))return fin('Already partly sent — cannot skip.');\n    chs.forEach(k=>{if(s(row[k])===READY)U[k]='مرفوض';});\n    U.draft_type='skipped';U.overall_status='مرفوض';U.approval_deadline='';U.writer_notes=note(row.writer_notes,`Skipped by ${p.who} ${t}`);\n    out.has_update=true;return fin('❌ Skipped (denied).');\n  }\n  const c=CH[p.act];if(!c)return fin('Unknown action.');\n  const [f,label]=c;\n  if(s(row[f])===SENT)return fin(`${label} was already sent to this business.`);\n  if(![READY,'فشل الإرسال'].includes(s(row[f])))return fin(`${label} is not waiting for approval.`);\n  if(p.act==='e'&&!prepEmail())return fin('Email address or draft is invalid.');\n  const first=nd(row.first_send_date)||t;\n  const sentN=chs.filter(k=>k===f||s(row[k])===SENT).length;\n  U[f]=SENT;U.first_send_date=first;U.channels_sent=sentN;U.channels_available=availN;\n  const stillReady=chs.some(k=>k!==f&&s(row[k])===READY);\n  U.overall_status=stillReady?'جزئية':'اكتملت';\n  if(!stillReady)U.approval_deadline='';\n  U.reminder_due=addDays(first,7);U.reminder_status=s(row.reminder_status)||'لم يحن بعد';\n  U.writer_notes=note(row.writer_notes,`${label} sent by ${p.who} ${t}`);\n  out.has_update=true;\n  return fin(p.act==='e'?`✅ Sending email to ${s(row.email)}…`:`✅ ${label} recorded as sent.`);\n}\n// reminder\nconst rn=s(row.reminder_notes);\nif(p.act==='d'){U.reminder_sent_date=t;U.reminder_status='تم التذكير';U.draft_type='done';U.approval_deadline='';U.reminder_notes=note(rn,`Done by ${p.who} ${t}`);out.has_update=true;return fin('✅ Reminder marked as done.');}\nconst c=CH[p.act];if(!c)return fin('Unknown action.');\nconst label=c[1];\nif(rn.includes(`${label} reminder sent`))return fin(`${label} reminder was already sent.`);\nif(p.act==='e'&&!prepEmail())return fin('Email address or draft is invalid.');\nU.reminder_notes=note(rn,`${label} reminder sent by ${p.who} ${t}`);out.has_update=true;\nreturn fin(p.act==='e'?'✅ Sending reminder email… tap “Reminder done” when all channels are done.':'✅ Recorded. Tap “Reminder done” when all channels are done.');\n"
+      },
+      "id": "029a62d5-0685-544b-8bef-f0d57e512f8b",
+      "name": "Decide",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        660,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c5cb6927-da5f-5467-8479-7079de0dd0b3",
+              "leftValue": "={{ $json.send_email }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "fe047d0b-abfe-5159-9ef0-45609845634d",
+      "name": "Send email?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        880,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "sendTo": "={{ $json.email_to }}",
+        "subject": "={{ $json.email_subject }}",
+        "emailType": "text",
+        "message": "={{ $json.email_body }}",
+        "options": {
+          "appendAttribution": false,
+          "senderName": "Reya Candles & Soaps"
+        }
+      },
+      "id": "5ca644d4-0806-51f6-8f4d-6397e527841d",
+      "name": "Send Gmail",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        1100,
+        -140
+      ],
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "7uH7CFIkCzGQIsJq",
+          "name": "Reya Gmail"
+        }
+      },
+      "webhookId": "c74e2b9c-d8d9-545c-ac3f-e099756a29cc",
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "d52ae242-80b7-5c2f-a9bb-3bfe4c92a8a2",
+              "leftValue": "={{ $json.has_update }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "01d2c346-71a7-56b4-9e18-a53178bdfd4c",
+      "name": "Has update?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1100,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst TZ='Asia/Amman';\nconst SENT='أُرسلت إلى الجهة', READY='جاهزة للمراجعة', DENIED='مرفوض - انتهت المهلة', EXCL='مستبعد - صانع شموع';\nconst NP='غير منشور', NV='غير متحقق';\nconst APPROVERS=[8469419204, 1798976243];\nconst MODEL='claude-sonnet-5';\nconst APPROVAL_HOURS=6;\nconst s=v=>String(v==null?'':v).trim();\nconst today=()=>new Date().toLocaleDateString('en-CA',{timeZone:TZ});\nconst nd=v=>{v=s(v);if(!v)return '';if(/^\\d{4}-\\d{2}-\\d{2}/.test(v))return v.slice(0,10);const m=v.match(/^(\\d{1,2})\\/(\\d{1,2})\\/(\\d{4})/);return m?`${m[3]}-${m[1].padStart(2,'0')}-${m[2].padStart(2,'0')}`:'';};\nconst addDays=(d,n)=>{const t=new Date(d+'T00:00:00Z');t.setUTCDate(t.getUTCDate()+n);return t.toISOString().slice(0,10);};\nconst avail=v=>{v=s(v);return v!==''&&!v.startsWith(NP)&&!v.startsWith(NV)&&!v.startsWith('غير متوفر');};\nconst parseJson=t=>{t=String(t||'').replace(/```json|```/g,'');const a=t.search(/[\\[{]/);if(a<0)throw new Error('no JSON in model output');const close=t[a]==='['?']':'}';const b=t.lastIndexOf(close);return JSON.parse(t.slice(a,b+1));};\nconst claudeText=r=>(r.content||[]).filter(c=>c.type==='text').map(c=>c.text).join('\\n');\nconst clean=v=>s(v).replace(/<\\/?cite[^>]*>/g,'').replace(/\\(?cite index=\"[^\"]*\">/g,'').trim();\nconst esc=x=>String(x).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\"/g,'&quot;');\n// 6 approval hours counted only while awake (08:00-22:00 Amman, UTC+3): a card at 21:00 expires 13:00 next day\nconst deadlineIso=()=>{const OFF=3*3600e3,START=8,END=22;let t=Date.now(),left=APPROVAL_HOURS*3600e3;\n  while(left>0){const l=new Date(t+OFF);const h=l.getUTCHours()+l.getUTCMinutes()/60+l.getUTCSeconds()/3600;\n    if(h<START){t+=(START-h)*3600e3;continue;}if(h>=END){t+=(24-h+START)*3600e3;continue;}\n    const step=Math.min(left,(END-h)*3600e3);t+=step;left-=step;}\n  return new Date(t).toISOString();};\nconst fmtAmman=iso=>new Date(iso).toLocaleString('en-GB',{timeZone:TZ,weekday:'short',day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'});\n// Categories (ز flowers retired; ط spas and ح home decor added per CLAUDE.md)\nconst CATS=['أ — منظمو حفلات الزفاف','ب — متاجر هدايا المعمودية','ج — متاجر الشموع المميزة (بائعو تجزئة فقط)','هـ — محال الكيك والمناسبات','و — محال الهدايا في فنادق 5 نجوم','ط — سبا نسائي (سبا للسيدات)','ح — محال الديكور المنزلي والمفاهيم'];\nconst CODE={'أ':'A','ب':'B','ج':'C','ه':'H','و':'W','ط':'S','ح':'D','ز':'Z'};\n// Hard rule: never contact candle makers / producers / own-brand candle shops\nconst MAKER_NAME=/candle|كاندل|شموع|شمع/i;\nconst MAKER_TXT=/(مصنع|تصنيع|يصنع|تصنع|صانع|منتج|مصبوب|يدوي)[^.؛،\\n]{0,25}(شمع|شموع)|(شمع|شموع)[^.؛،\\n]{0,15}(يدوي|مصبوب|صويا)|candle ?(maker|brand|studio|factory|shop)|hand-?poured/i;\nconst isCandleMaker=r=>MAKER_NAME.test(s(r.business_name)+' '+s(r.english_name))||MAKER_TXT.test([r.verification_notes,r.other_channels,r.relevance,r.description].map(s).join(' '));\nreturn [{json:$('Decide').first().json.update}];"
+      },
+      "id": "48211972-6331-5053-bbd8-30cf97733c47",
+      "name": "Update payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1320,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "1jSeftb1cyc9YYg7zTRPDJFGgIDltvQLJKjF3LRB3zHI",
+          "mode": "id",
+          "cachedResultName": "Reya_B2B_Master_Sheet"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Sheet1",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [
+            "record_id"
+          ],
+          "schema": []
+        },
+        "options": {
+          "cellFormat": "RAW"
+        }
+      },
+      "id": "fa318377-c456-56a6-ac4b-5c57ca75a940",
+      "name": "Update sheet",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        1540,
+        0
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "hGcn8iQaUPZNWaG9",
+          "name": "Reya Google Sheets"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "callback",
+        "queryId": "={{ $('Decide').first().json.callback_query_id }}",
+        "additionalFields": {
+          "text": "={{ $('Decide').first().json.reply }}",
+          "show_alert": true
+        }
+      },
+      "id": "a1eb44c3-57b2-57aa-a46d-df50430f5bf4",
+      "name": "Answer tap",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1760,
+        60
+      ],
+      "credentials": {
+        "telegramApi": {
+          "id": "USmj7xUTRbgSc4ZB",
+          "name": "Reya B2B bot"
+        }
+      },
+      "webhookId": "ad5ace15-0a41-572d-806f-2fe3408dd8c7",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "resource": "callback",
+        "queryId": "={{ $('Decide').first().json.callback_query_id }}",
+        "additionalFields": {
+          "text": "Email FAILED to send — sheet not changed. Try again.",
+          "show_alert": true
+        }
+      },
+      "id": "dccce3c7-8146-59ba-971e-a931d35d59b3",
+      "name": "Answer email failed",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1320,
+        -260
+      ],
+      "credentials": {
+        "telegramApi": {
+          "id": "USmj7xUTRbgSc4ZB",
+          "name": "Reya B2B bot"
+        }
+      },
+      "webhookId": "cbe9d275-6e63-5c9a-88c6-7a5c6d1776f4",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 30
+            }
+          ]
+        }
+      },
+      "id": "f03b52ae-3594-5ecf-b665-8c93e3dfa4d9",
+      "name": "Every 30 min",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        500
+      ]
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1jSeftb1cyc9YYg7zTRPDJFGgIDltvQLJKjF3LRB3zHI",
+          "mode": "id",
+          "cachedResultName": "Reya_B2B_Master_Sheet"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Sheet1",
+          "mode": "name"
+        },
+        "options": {}
+      },
+      "id": "a4f17ede-08b2-5cef-abb6-2500a964dd42",
+      "name": "Read sheet (expiry)",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        220,
+        500
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "hGcn8iQaUPZNWaG9",
+          "name": "Reya Google Sheets"
+        }
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst TZ='Asia/Amman';\nconst SENT='أُرسلت إلى الجهة', READY='جاهزة للمراجعة', DENIED='مرفوض - انتهت المهلة', EXCL='مستبعد - صانع شموع';\nconst NP='غير منشور', NV='غير متحقق';\nconst APPROVERS=[8469419204, 1798976243];\nconst MODEL='claude-sonnet-5';\nconst APPROVAL_HOURS=6;\nconst s=v=>String(v==null?'':v).trim();\nconst today=()=>new Date().toLocaleDateString('en-CA',{timeZone:TZ});\nconst nd=v=>{v=s(v);if(!v)return '';if(/^\\d{4}-\\d{2}-\\d{2}/.test(v))return v.slice(0,10);const m=v.match(/^(\\d{1,2})\\/(\\d{1,2})\\/(\\d{4})/);return m?`${m[3]}-${m[1].padStart(2,'0')}-${m[2].padStart(2,'0')}`:'';};\nconst addDays=(d,n)=>{const t=new Date(d+'T00:00:00Z');t.setUTCDate(t.getUTCDate()+n);return t.toISOString().slice(0,10);};\nconst avail=v=>{v=s(v);return v!==''&&!v.startsWith(NP)&&!v.startsWith(NV)&&!v.startsWith('غير متوفر');};\nconst parseJson=t=>{t=String(t||'').replace(/```json|```/g,'');const a=t.search(/[\\[{]/);if(a<0)throw new Error('no JSON in model output');const close=t[a]==='['?']':'}';const b=t.lastIndexOf(close);return JSON.parse(t.slice(a,b+1));};\nconst claudeText=r=>(r.content||[]).filter(c=>c.type==='text').map(c=>c.text).join('\\n');\nconst clean=v=>s(v).replace(/<\\/?cite[^>]*>/g,'').replace(/\\(?cite index=\"[^\"]*\">/g,'').trim();\nconst esc=x=>String(x).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\"/g,'&quot;');\n// 6 approval hours counted only while awake (08:00-22:00 Amman, UTC+3): a card at 21:00 expires 13:00 next day\nconst deadlineIso=()=>{const OFF=3*3600e3,START=8,END=22;let t=Date.now(),left=APPROVAL_HOURS*3600e3;\n  while(left>0){const l=new Date(t+OFF);const h=l.getUTCHours()+l.getUTCMinutes()/60+l.getUTCSeconds()/3600;\n    if(h<START){t+=(START-h)*3600e3;continue;}if(h>=END){t+=(24-h+START)*3600e3;continue;}\n    const step=Math.min(left,(END-h)*3600e3);t+=step;left-=step;}\n  return new Date(t).toISOString();};\nconst fmtAmman=iso=>new Date(iso).toLocaleString('en-GB',{timeZone:TZ,weekday:'short',day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'});\n// Categories (ز flowers retired; ط spas and ح home decor added per CLAUDE.md)\nconst CATS=['أ — منظمو حفلات الزفاف','ب — متاجر هدايا المعمودية','ج — متاجر الشموع المميزة (بائعو تجزئة فقط)','هـ — محال الكيك والمناسبات','و — محال الهدايا في فنادق 5 نجوم','ط — سبا نسائي (سبا للسيدات)','ح — محال الديكور المنزلي والمفاهيم'];\nconst CODE={'أ':'A','ب':'B','ج':'C','ه':'H','و':'W','ط':'S','ح':'D','ز':'Z'};\n// Hard rule: never contact candle makers / producers / own-brand candle shops\nconst MAKER_NAME=/candle|كاندل|شموع|شمع/i;\nconst MAKER_TXT=/(مصنع|تصنيع|يصنع|تصنع|صانع|منتج|مصبوب|يدوي)[^.؛،\\n]{0,25}(شمع|شموع)|(شمع|شموع)[^.؛،\\n]{0,15}(يدوي|مصبوب|صويا)|candle ?(maker|brand|studio|factory|shop)|hand-?poured/i;\nconst isCandleMaker=r=>MAKER_NAME.test(s(r.business_name)+' '+s(r.english_name))||MAKER_TXT.test([r.verification_notes,r.other_channels,r.relevance,r.description].map(s).join(' '));\n\nconst now=Date.now();const t=today();const out=[];\nconst chs=['email_status','whatsapp_status','messenger_status','instagram_dm_status'];\nfor(const i of $input.all()){const r=i.json;\n  if(!r.record_id||!s(r.approval_deadline))continue;\n  if(now<=new Date(r.approval_deadline).getTime())continue;\n  const u={record_id:r.record_id,approval_deadline:'',_name:s(r.english_name)&&avail(r.english_name)?s(r.english_name):s(r.business_name)};\n  if(s(r.draft_type)==='reminder'){\n    const some=s(r.reminder_notes).includes('reminder sent');\n    u.draft_type='done';u.reminder_status=some?'تم التذكير (جزئي)':DENIED;\n    if(some)u.reminder_sent_date=t;\n    u.reminder_notes=[s(r.reminder_notes),`Auto-denied after ${APPROVAL_HOURS}h ${t}`].filter(Boolean).join(' | ');u._kind='reminder';\n  }else{\n    chs.forEach(k=>{if(s(r[k])===READY)u[k]=DENIED;});\n    const anySent=chs.some(k=>s(r[k])===SENT);\n    u.overall_status=anySent?'جزئية':DENIED;if(!anySent)u.draft_type='expired';\n    u.writer_notes=[s(r.writer_notes),`Unapproved channels auto-denied after ${APPROVAL_HOURS}h ${t}`].filter(Boolean).join(' | ');u._kind='first';\n  }\n  out.push({json:u});}\nreturn out;\n"
+      },
+      "id": "56482b1c-8e71-58fe-bd7d-4902d382c5fb",
+      "name": "Expire unapproved",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        440,
+        500
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst TZ='Asia/Amman';\nconst SENT='أُرسلت إلى الجهة', READY='جاهزة للمراجعة', DENIED='مرفوض - انتهت المهلة', EXCL='مستبعد - صانع شموع';\nconst NP='غير منشور', NV='غير متحقق';\nconst APPROVERS=[8469419204, 1798976243];\nconst MODEL='claude-sonnet-5';\nconst APPROVAL_HOURS=6;\nconst s=v=>String(v==null?'':v).trim();\nconst today=()=>new Date().toLocaleDateString('en-CA',{timeZone:TZ});\nconst nd=v=>{v=s(v);if(!v)return '';if(/^\\d{4}-\\d{2}-\\d{2}/.test(v))return v.slice(0,10);const m=v.match(/^(\\d{1,2})\\/(\\d{1,2})\\/(\\d{4})/);return m?`${m[3]}-${m[1].padStart(2,'0')}-${m[2].padStart(2,'0')}`:'';};\nconst addDays=(d,n)=>{const t=new Date(d+'T00:00:00Z');t.setUTCDate(t.getUTCDate()+n);return t.toISOString().slice(0,10);};\nconst avail=v=>{v=s(v);return v!==''&&!v.startsWith(NP)&&!v.startsWith(NV)&&!v.startsWith('غير متوفر');};\nconst parseJson=t=>{t=String(t||'').replace(/```json|```/g,'');const a=t.search(/[\\[{]/);if(a<0)throw new Error('no JSON in model output');const close=t[a]==='['?']':'}';const b=t.lastIndexOf(close);return JSON.parse(t.slice(a,b+1));};\nconst claudeText=r=>(r.content||[]).filter(c=>c.type==='text').map(c=>c.text).join('\\n');\nconst clean=v=>s(v).replace(/<\\/?cite[^>]*>/g,'').replace(/\\(?cite index=\"[^\"]*\">/g,'').trim();\nconst esc=x=>String(x).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\"/g,'&quot;');\n// 6 approval hours counted only while awake (08:00-22:00 Amman, UTC+3): a card at 21:00 expires 13:00 next day\nconst deadlineIso=()=>{const OFF=3*3600e3,START=8,END=22;let t=Date.now(),left=APPROVAL_HOURS*3600e3;\n  while(left>0){const l=new Date(t+OFF);const h=l.getUTCHours()+l.getUTCMinutes()/60+l.getUTCSeconds()/3600;\n    if(h<START){t+=(START-h)*3600e3;continue;}if(h>=END){t+=(24-h+START)*3600e3;continue;}\n    const step=Math.min(left,(END-h)*3600e3);t+=step;left-=step;}\n  return new Date(t).toISOString();};\nconst fmtAmman=iso=>new Date(iso).toLocaleString('en-GB',{timeZone:TZ,weekday:'short',day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'});\n// Categories (ز flowers retired; ط spas and ح home decor added per CLAUDE.md)\nconst CATS=['أ — منظمو حفلات الزفاف','ب — متاجر هدايا المعمودية','ج — متاجر الشموع المميزة (بائعو تجزئة فقط)','هـ — محال الكيك والمناسبات','و — محال الهدايا في فنادق 5 نجوم','ط — سبا نسائي (سبا للسيدات)','ح — محال الديكور المنزلي والمفاهيم'];\nconst CODE={'أ':'A','ب':'B','ج':'C','ه':'H','و':'W','ط':'S','ح':'D','ز':'Z'};\n// Hard rule: never contact candle makers / producers / own-brand candle shops\nconst MAKER_NAME=/candle|كاندل|شموع|شمع/i;\nconst MAKER_TXT=/(مصنع|تصنيع|يصنع|تصنع|صانع|منتج|مصبوب|يدوي)[^.؛،\\n]{0,25}(شمع|شموع)|(شمع|شموع)[^.؛،\\n]{0,15}(يدوي|مصبوب|صويا)|candle ?(maker|brand|studio|factory|shop)|hand-?poured/i;\nconst isCandleMaker=r=>MAKER_NAME.test(s(r.business_name)+' '+s(r.english_name))||MAKER_TXT.test([r.verification_notes,r.other_channels,r.relevance,r.description].map(s).join(' '));\nreturn $input.all().map(i=>{const j={...i.json};delete j._name;delete j._kind;return {json:j};});"
+      },
+      "id": "5cf8d1e2-37ba-53f8-8b24-d3a157799732",
+      "name": "Strip names",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        660,
+        500
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "1jSeftb1cyc9YYg7zTRPDJFGgIDltvQLJKjF3LRB3zHI",
+          "mode": "id",
+          "cachedResultName": "Reya_B2B_Master_Sheet"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Sheet1",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [
+            "record_id"
+          ],
+          "schema": []
+        },
+        "options": {
+          "cellFormat": "RAW"
+        }
+      },
+      "id": "d2dea76a-e5f4-55de-8265-6b80aa392d3f",
+      "name": "Save denials",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        880,
+        500
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "hGcn8iQaUPZNWaG9",
+          "name": "Reya Google Sheets"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst TZ='Asia/Amman';\nconst SENT='أُرسلت إلى الجهة', READY='جاهزة للمراجعة', DENIED='مرفوض - انتهت المهلة', EXCL='مستبعد - صانع شموع';\nconst NP='غير منشور', NV='غير متحقق';\nconst APPROVERS=[8469419204, 1798976243];\nconst MODEL='claude-sonnet-5';\nconst APPROVAL_HOURS=6;\nconst s=v=>String(v==null?'':v).trim();\nconst today=()=>new Date().toLocaleDateString('en-CA',{timeZone:TZ});\nconst nd=v=>{v=s(v);if(!v)return '';if(/^\\d{4}-\\d{2}-\\d{2}/.test(v))return v.slice(0,10);const m=v.match(/^(\\d{1,2})\\/(\\d{1,2})\\/(\\d{4})/);return m?`${m[3]}-${m[1].padStart(2,'0')}-${m[2].padStart(2,'0')}`:'';};\nconst addDays=(d,n)=>{const t=new Date(d+'T00:00:00Z');t.setUTCDate(t.getUTCDate()+n);return t.toISOString().slice(0,10);};\nconst avail=v=>{v=s(v);return v!==''&&!v.startsWith(NP)&&!v.startsWith(NV)&&!v.startsWith('غير متوفر');};\nconst parseJson=t=>{t=String(t||'').replace(/```json|```/g,'');const a=t.search(/[\\[{]/);if(a<0)throw new Error('no JSON in model output');const close=t[a]==='['?']':'}';const b=t.lastIndexOf(close);return JSON.parse(t.slice(a,b+1));};\nconst claudeText=r=>(r.content||[]).filter(c=>c.type==='text').map(c=>c.text).join('\\n');\nconst clean=v=>s(v).replace(/<\\/?cite[^>]*>/g,'').replace(/\\(?cite index=\"[^\"]*\">/g,'').trim();\nconst esc=x=>String(x).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\"/g,'&quot;');\n// 6 approval hours counted only while awake (08:00-22:00 Amman, UTC+3): a card at 21:00 expires 13:00 next day\nconst deadlineIso=()=>{const OFF=3*3600e3,START=8,END=22;let t=Date.now(),left=APPROVAL_HOURS*3600e3;\n  while(left>0){const l=new Date(t+OFF);const h=l.getUTCHours()+l.getUTCMinutes()/60+l.getUTCSeconds()/3600;\n    if(h<START){t+=(START-h)*3600e3;continue;}if(h>=END){t+=(24-h+START)*3600e3;continue;}\n    const step=Math.min(left,(END-h)*3600e3);t+=step;left-=step;}\n  return new Date(t).toISOString();};\nconst fmtAmman=iso=>new Date(iso).toLocaleString('en-GB',{timeZone:TZ,weekday:'short',day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'});\n// Categories (ز flowers retired; ط spas and ح home decor added per CLAUDE.md)\nconst CATS=['أ — منظمو حفلات الزفاف','ب — متاجر هدايا المعمودية','ج — متاجر الشموع المميزة (بائعو تجزئة فقط)','هـ — محال الكيك والمناسبات','و — محال الهدايا في فنادق 5 نجوم','ط — سبا نسائي (سبا للسيدات)','ح — محال الديكور المنزلي والمفاهيم'];\nconst CODE={'أ':'A','ب':'B','ج':'C','ه':'H','و':'W','ط':'S','ح':'D','ز':'Z'};\n// Hard rule: never contact candle makers / producers / own-brand candle shops\nconst MAKER_NAME=/candle|كاندل|شموع|شمع/i;\nconst MAKER_TXT=/(مصنع|تصنيع|يصنع|تصنع|صانع|منتج|مصبوب|يدوي)[^.؛،\\n]{0,25}(شمع|شموع)|(شمع|شموع)[^.؛،\\n]{0,15}(يدوي|مصبوب|صويا)|candle ?(maker|brand|studio|factory|shop)|hand-?poured/i;\nconst isCandleMaker=r=>MAKER_NAME.test(s(r.business_name)+' '+s(r.english_name))||MAKER_TXT.test([r.verification_notes,r.other_channels,r.relevance,r.description].map(s).join(' '));\n\nconst L=$('Expire unapproved').all().map(i=>`• ${i.json._name} (${i.json.record_id}) — ${i.json._kind==='reminder'?'reminder':'first message'}`);\nif(!L.length)return [];\nconst text=`⏰ Not approved within ${APPROVAL_HOURS}h — automatically DENIED (nothing sent):\\n`+L.join('\\n');\nreturn APPROVERS.map(id=>({json:{chat_id:id,text}}));\n"
+      },
+      "id": "039bfd0a-3c24-5412-bbf3-cdf05df512a2",
+      "name": "Denial notice",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1100,
+        500
+      ],
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.chat_id }}",
+        "text": "={{ $json.text }}",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "id": "ede5a216-7bdd-5741-90f7-371b3a7783ba",
+      "name": "Telegram denial notice",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1320,
+        500
+      ],
+      "credentials": {
+        "telegramApi": {
+          "id": "USmj7xUTRbgSc4ZB",
+          "name": "Reya B2B bot"
+        }
+      },
+      "webhookId": "ab5251fd-b789-5fd7-8bed-3ca65a441539",
+      "onError": "continueRegularOutput"
+    }
+  ],
+  "connections": {
+    "Telegram button pressed": {
+      "main": [
+        [
+          {
+            "node": "Parse tap",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse tap": {
+      "main": [
+        [
+          {
+            "node": "Read row",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read row": {
+      "main": [
+        [
+          {
+            "node": "Decide",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Decide": {
+      "main": [
+        [
+          {
+            "node": "Send email?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send email?": {
+      "main": [
+        [
+          {
+            "node": "Send Gmail",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Has update?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Gmail": {
+      "main": [
+        [
+          {
+            "node": "Update payload",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Answer email failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has update?": {
+      "main": [
+        [
+          {
+            "node": "Update payload",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Answer tap",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update payload": {
+      "main": [
+        [
+          {
+            "node": "Update sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update sheet": {
+      "main": [
+        [
+          {
+            "node": "Answer tap",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Every 30 min": {
+      "main": [
+        [
+          {
+            "node": "Read sheet (expiry)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read sheet (expiry)": {
+      "main": [
+        [
+          {
+            "node": "Expire unapproved",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Expire unapproved": {
+      "main": [
+        [
+          {
+            "node": "Strip names",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Strip names": {
+      "main": [
+        [
+          {
+            "node": "Save denials",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save denials": {
+      "main": [
+        [
+          {
+            "node": "Denial notice",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Denial notice": {
+      "main": [
+        [
+          {
+            "node": "Telegram denial notice",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Asia/Amman",
+    "saveManualExecutions": true
+  },
+  "meta": {
+    "instanceId": "f3ebdc47079737fb41f9a77191b283344a56abf33f613d18c592413418d3cc73"
+  }
+}
