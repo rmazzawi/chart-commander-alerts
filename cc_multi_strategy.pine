@@ -361,4 +361,15 @@ if t1Msg != ""
 if exited
     alert(f_json(exitMsg, "exit"), alert.freq_once_per_bar_close)
 
+// ---------------- Watchlist-friendly alert (alertcondition) ----------------
+// Action codes: 1 BUY CALLS, -1 BUY PUTS, 2 SELL HALF CALLS, -2 SELL HALF PUTS, 3 EXIT CALLS, -3 EXIT PUTS
+// Strategy codes: 1 S1 ORB, 2 S2 SWEEP, 3 S3 VWAP
+wasLong  = pos == 1 or (exited and pos[1] == 1)
+actCode  = entryMsg != "" ? (pos == 1 ? 1 : -1) : t1Msg != "" ? (pos == 1 ? 2 : -2) : exited ? (wasLong ? 3 : -3) : 0
+stratCode = str.contains(strat, "S1") ? 1 : str.contains(strat, "S2") ? 2 : str.contains(strat, "S3") ? 3 : 0
+plot(actCode, "ActionCode", display = display.data_window)
+plot(stratCode, "StrategyCode", display = display.data_window)
+plot(rvol, "RVOL", display = display.data_window)
+alertcondition(actCode != 0, "CC-Multi ANY SIGNAL (use for watchlists)", '{"src":"cc-ac","ticker":"{{ticker}}","code":{{plot("ActionCode")}},"strat":{{plot("StrategyCode")}},"price":{{close}},"stop":{{plot("Stop")}},"t1":{{plot("Target 1")}},"t2":{{plot("Target 2")}},"rvol":{{plot("RVOL")}},"time":"{{timenow}}"}')
+
 // END OF SCRIPT
