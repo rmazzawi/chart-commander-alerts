@@ -45,6 +45,7 @@ hookKey = input.string("change-me", "Webhook key (must match n8n)", group = gA)
 
 gD       = "Display"
 showPD   = input.bool(true, "Show levels (PM, PD, OR, EQ)", group = gD)
+showDbg  = input.bool(true, "Show debug markers (SW sweep, RC reclaim, R retest, BLOCKED reason)", group = gD)
 showSlow = input.bool(true, "Show slow lines (77 EMA, 200/400 SMA, 72/89 cloud)", group = gD)
 
 tz = "America/New_York"
@@ -254,10 +255,6 @@ if inRTH and swBearLvl
     swHBar := bar_index
 reclaimUp = s2 and tfOK and not na(swLBar) and bar_index - swLBar <= 30 and close > e9 and close > e20 and close[1] <= e20[1] and volUp(hC > hV ? 1.0 : volMult)
 reclaimDn = s2 and tfOK and not na(swHBar) and bar_index - swHBar <= 30 and close < e9 and close < e20 and close[1] >= e20[1] and volUp(hC < hV ? 1.0 : volMult)
-if reclaimUp
-    swLBar := na
-if reclaimDn
-    swHBar := na
 [s2L, s2LStop, s2LSt] = f_retest(reclaimUp, 1, e20, swLow, tolRev)
 [s2S, s2SStop, s2SSt] = f_retest(reclaimDn, -1, e20, swHigh, tolRev)
 
@@ -393,6 +390,18 @@ sStop  = s2S ? s2SStop : s5S ? s5SStop : s4S ? s4SStop : s1Sx ? s1SStop : s3SSto
 levels = array.from(pmh, pml, pdh, pdl, orH, orL, eqH, eqL, hod, lod, vwap)
 
 entryMsg = ""
+blockMsg = ""
+if pos == 0 and not exited and canEntAll and tfOK and barstate.isconfirmed and (longFire or shortFire)
+    isLg = longFire and not shortFire
+    rk   = isLg ? close - lStop : sStop - close
+    ok5  = isLg ? (revL ? (not use5m or m5C > m5E9) : m5Bull) : (revS ? (not use5m or m5C < m5E9) : m5Bear)
+    blockMsg := longFire and shortFire ? "both sides" : rk <= 0 ? "stop on wrong side" : rk > atr * maxRisk ? "stop too wide " + str.tostring(rk / atr, "#.#") + "xATR" : not ok5 ? "5m not confirming" : ""
+else if pos != 0 and (longFire or shortFire) and barstate.isconfirmed
+    blockMsg := "already in a trade"
+else if pos == 0 and (longFire or shortFire) and not canEntAll and barstate.isconfirmed
+    blockMsg := "outside entry time"
+else if pos == 0 and barstate.isconfirmed and ((s1L and not s1Lx) or (s3L and not s3Lx) or (s1S and not s1Sx) or (s3S and not s3Sx))
+    blockMsg := "S1/S3 trend filter (VWAP side / 30m / 9:50 window)"
 if pos == 0 and not exited and canEntAll and tfOK and barstate.isconfirmed
     if longFire and not shortFire
         risk = close - lStop
@@ -471,8 +480,14 @@ if exited
     label.new(bar_index, close, "EXIT", style = label.style_label_left, color = color.gray, textcolor = color.white, size = size.tiny)
 
 // Retest markers: R = retest accepted (waiting for confirmation candle)
-anyRetestL = (s1LSt == 2 and s1LSt[1] != 2) or (s2LSt == 2 and s2LSt[1] != 2) or (s3LSt == 2 and s3LSt[1] != 2)
-anyRetestS = (s1SSt == 2 and s1SSt[1] != 2) or (s2SSt == 2 and s2SSt[1] != 2) or (s3SSt == 2 and s3SSt[1] != 2)
+anyRetestL = (s1LSt == 2 and s1LSt[1] != 2) or (s2LSt == 2 and s2LSt[1] != 2) or (s3LSt == 2 and s3LSt[1] != 2) or (s4LSt == 2 and s4LSt[1] != 2) or (s5LSt == 2 and s5LSt[1] != 2)
+anyRetestS = (s1SSt == 2 and s1SSt[1] != 2) or (s2SSt == 2 and s2SSt[1] != 2) or (s3SSt == 2 and s3SSt[1] != 2) or (s4SSt == 2 and s4SSt[1] != 2) or (s5SSt == 2 and s5SSt[1] != 2)
+plotshape(showDbg and inRTH and swBullLvl, "Sweep low", shape.triangleup, location.belowbar, color.new(color.aqua, 0), size = size.tiny, text = "SW")
+plotshape(showDbg and inRTH and swBearLvl, "Sweep high", shape.triangledown, location.abovebar, color.new(color.fuchsia, 0), size = size.tiny, text = "SW")
+plotshape(showDbg and (reclaimUp or pbUpT or orbUpT or vwUpT or drUpT), "Trigger long", shape.diamond, location.belowbar, color.new(color.yellow, 0), size = size.tiny, text = "RC")
+plotshape(showDbg and (reclaimDn or pbDnT or orbDnT or vwDnT or drDnT), "Trigger short", shape.diamond, location.abovebar, color.new(color.yellow, 0), size = size.tiny, text = "RC")
+if showDbg and blockMsg != ""
+    label.new(bar_index, (longFire or s1L or s3L) ? low : high, "BLOCKED: " + blockMsg, style = (longFire or s1L or s3L) ? label.style_label_up : label.style_label_down, color = color.new(color.gray, 20), textcolor = color.white, size = size.tiny)
 plotshape(anyRetestL, "Retest (long)", shape.circle, location.belowbar, color.new(color.lime, 0), size = size.tiny, text = "R")
 plotshape(anyRetestS, "Retest (short)", shape.circle, location.abovebar, color.new(color.red, 0), size = size.tiny, text = "R")
 
