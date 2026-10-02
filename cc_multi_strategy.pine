@@ -258,15 +258,21 @@ swBearLvl = strH or (not na(pmh) and high > pmh and close < pmh) or (not na(pdh)
 var float swLow  = na
 var bool  swLStr = false
 var bool  swHStr = false
+var int   strLBar = na
+var int   strHBar = na
+if strL
+    strLBar := bar_index
+if strH
+    strHBar := bar_index
 var float swHigh = na
 var int   swLBar = na
 var int   swHBar = na
 if inRTH and swBullLvl
-    swLStr := strL or (swLStr and not na(swLBar) and bar_index - swLBar <= 30)
+    swLStr := not na(strLBar) and bar_index - strLBar <= 30
     swLow  := low
     swLBar := bar_index
 if inRTH and swBearLvl
-    swHStr := strH or (swHStr and not na(swHBar) and bar_index - swHBar <= 30)
+    swHStr := not na(strHBar) and bar_index - strHBar <= 30
     swHigh := high
     swHBar := bar_index
 // Seller/buyer exhaustion: heavy volume somewhere in the sweep zone (last 15 bars)
@@ -274,8 +280,8 @@ climaxL = ta.highest(rvol, 15) >= volMult and not na(swLBar) and bar_index - swL
 climaxH = climaxL
 // Reclaim = first close back above the 9 EMA after the low (the 20 lags too far after a steep drop), green candle,
 // volume: normal/rising OR there was a volume climax at the low
-reclaimUp = s2 and tfOK and (swLStr or (not chop and ok30L)) and not na(swLBar) and bar_index - swLBar <= 30 and close > e9 and close[1] <= e9[1] and close > open and (rvol >= revVol or rv5 >= 1.0 or climaxL)
-reclaimDn = s2 and tfOK and (swHStr or (not chop and ok30S)) and not na(swHBar) and bar_index - swHBar <= 30 and close < e9 and close[1] >= e9[1] and close < open and (rvol >= revVol or rv5 >= 1.0 or climaxH)
+reclaimUp = s2 and tfOK and ((swLStr and bar_index - strLBar <= 30) or (not chop and ok30L)) and not na(swLBar) and bar_index - swLBar <= 30 and close > e9 and close[1] <= e9[1] and close > open and (rvol >= revVol or rv5 >= 1.0 or climaxL)
+reclaimDn = s2 and tfOK and ((swHStr and bar_index - strHBar <= 30) or (not chop and ok30S)) and not na(swHBar) and bar_index - swHBar <= 30 and close < e9 and close[1] >= e9[1] and close < open and (rvol >= revVol or rv5 >= 1.0 or climaxH)
 [s2Lr, s2LStopR, s2LSt] = f_retest(reclaimUp, 1, e9 - atr * 0.25, swLow, 2.0)
 [s2Sr, s2SStopR, s2SSt] = f_retest(reclaimDn, -1, e9 + atr * 0.25, swHigh, 2.0)
 // Aggressive V entry: 1-3 bars after the reclaim, a candle closes beyond the reclaim candle on rising volume
@@ -484,8 +490,8 @@ s1Sx = s1S and trendOkS
 s3Sx = s3S and trendOkS
 revL = s2L or s4L or s5L or s6L
 revS = s2S or s4S or s5S or s6S
-longFire  = s6L or (s2L and swLStr) or (not (chopOnly6 and chop) and (s2L or s5L or s4L or s1Lx or s3Lx))
-shortFire = s6S or (s2S and swHStr) or (not (chopOnly6 and chop) and (s2S or s5S or s4S or s1Sx or s3Sx))
+longFire  = s6L or (s2L and swLStr and bar_index - strLBar <= 30) or (not (chopOnly6 and chop) and (s2L or s5L or s4L or s1Lx or s3Lx))
+shortFire = s6S or (s2S and swHStr and bar_index - strHBar <= 30) or (not (chopOnly6 and chop) and (s2S or s5S or s4S or s1Sx or s3Sx))
 lName  = s6L ? "S6 TLP PATIENCE" : s2L ? "S2 SWEEP REVERSAL" : s5L ? "S5 TREND PULLBACK" : s4L ? "S4 OPENING DRIVE" : s1Lx ? "S1 ORB 30m" : "S3 VWAP RECLAIM"
 sName  = s6S ? "S6 TLP PATIENCE" : s2S ? "S2 SWEEP REVERSAL" : s5S ? "S5 TREND PULLBACK" : s4S ? "S4 OPENING DRIVE" : s1Sx ? "S1 ORB 30m" : "S3 VWAP LOSS"
 lStop  = s6L ? s6LStop : s2L ? s2LStop : s5L ? s5LStop : s4L ? s4LStop : s1Lx ? s1LStop : s3LStop
