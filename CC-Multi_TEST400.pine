@@ -1,0 +1,688 @@
+//@version=6
+// Chart Commander - Multi Strategy (0DTE)
+// Tickers: SPY QQQ IWM AAPL MSFT NVDA GOOGL AMZN META TSLA
+// Chart: 2-minute, EXTENDED HOURS ON (needed for premarket high/low)
+// Every entry = trigger -> retest that holds on LIGHTER volume -> confirmation candle on HEAVIER volume
+// Educational tool, not financial advice.
+indicator("Chart Commander Multi", shorttitle = "CC-Multi TEST400", overlay = true, scale = scale.right, format = format.inherit, max_labels_count = 500, max_boxes_count = 500, max_lines_count = 500)
+
+// ---------------- Inputs ----------------
+gS  = "Strategies"
+s1  = input.bool(true, "S1 - 30m Opening Range Break + 20 EMA retest", group = gS)
+s2  = input.bool(true, "S2 - Liquidity sweep reversal (PM/PD/OR/equal H-L)", group = gS)
+s3  = input.bool(true, "S3 - VWAP reclaim / loss + retest", group = gS)
+
+gV      = "Volume"
+volLen  = input.int(20, "Average volume length (bars)", minval = 5, group = gV)
+volMult = input.float(1.5, "Trigger candle must be >= x average volume", step = 0.1, group = gV)
+
+gR      = "Risk & exits"
+maxWait = input.int(30, "Max bars to wait for retest/confirm", minval = 5, group = gR)
+tolAtr  = input.float(0.15, "Retest touch tolerance (x ATR)", step = 0.05, group = gR)
+minR    = input.float(0.5, "Min distance to target (x risk)", step = 0.1, group = gR)
+t1Cap   = input.float(1.5, "Target 1 max (x risk)", step = 0.25, group = gR)
+t2Cap   = input.float(3.0, "Target 2 max (x risk)", step = 0.25, group = gR)
+trailTf = input.timeframe("5", "Trail stop on candles of", group = gR)
+maxRisk = input.float(1.5, "Max stop distance x ATR (options-friendly)", step = 0.1, group = gR)
+capWide = input.bool(true, "If the stop is wider: tighten it to the max (on) / skip the trade (off)", group = gR)
+aggrRev = input.bool(true, "S2 aggressive: enter V-reversals that never retest (break of reclaim candle high/low)", group = gR)
+use5m   = input.bool(true, "Require 5m confirmation (5m close + 9/20 EMA aligned)", group = gR)
+needVw  = input.bool(true, "Entry must be on the right side of VWAP (calls above, puts below)", group = gR)
+use30   = input.bool(true, "30m trend must not be against the trade", group = gR)
+entWin  = input.session("0950-1530", "Entry window (ET) - skips opening chaos", group = gR)
+revVol  = input.float(0.8, "Reversal (S2) reclaim candle: min volume x average", step = 0.1, group = gR)
+stretch = input.float(2.5, "Reversal: stretch from VWAP that counts as exhaustion (x ATR)", step = 0.25, group = gR)
+s1In    = input.bool(true, "S1: allow the pullback back INSIDE the 30m range (killed only below range middle)", group = gR)
+s6      = input.bool(true, "S6 - TLP: Trend + Level + Patience candle (2m 9:30-10, 5m 10-11, 10m after 11)", group = gR)
+fibMax  = input.float(0.382, "S6: patience candle may retrace at most this Fib of the last leg", step = 0.01, group = gR)
+smaNear = input.float(1.0, "S6: skip if SMA 200/400 is within x ATR in the trade direction (bounce risk)", step = 0.1, group = gR)
+s5      = input.bool(true, "S5 - Trend pullback (dip into 34/50 or 72/89 cloud in a 10m trend, then 9/20 reclaim)", group = gR)
+s4      = input.bool(true, "S4 - Opening drive (PM high/low break + 9 EMA retest, 9:35-10:30)", group = gR)
+exitT2  = input.bool(false, "Exit everything at Target 2 (off = let runner trail)", group = gR)
+
+gF      = "Filters"
+useHtf  = input.bool(true, "10m trend filter for S1 & S3 (calls only if 10m bullish, puts only if bearish)", group = gF)
+useChop = input.bool(true, "Chop filter for S3 (skip flat VWAP / repeated crosses)", group = gF)
+chopX   = input.int(4, "Chop = VWAP crosses in last 20 bars >=", minval = 2, group = gF)
+only2m  = input.bool(true, "Signals only on 2-minute chart", group = gF)
+
+gA      = "Alerts / webhook"
+hookKey = input.string("change-me", "Webhook key (must match n8n)", group = gA)
+
+gC       = "Cloud rule"
+cloudRule = input.bool(true, "Calls only if the candle closes ABOVE the 34/50 cloud, puts only BELOW it", group = gC)
+cloudFar  = input.float(1.5, "...except reversals far from the cloud (more than x ATR away)", step = 0.25, group = gC)
+noChop    = input.bool(true, "No trades when CHOP after the time below (except real exhaustion reversals)", group = gC)
+chopFrom  = input.session("1130-1600", "Chop block active during (ET)", group = gC)
+secondT   = input.bool(true, "First hour: S2 reversal only on a 2nd test (lower high for puts / higher low for calls)", group = gC)
+s2Trend   = input.bool(true, "S2: only with the 400 SMA trend (calls above SMA 400, puts below)", group = gC)
+gD       = "Display"
+showPD   = input.bool(true, "Show levels (PM, PD, OR, EQ)", group = gD)
+showDbg  = input.bool(false, "Show debug markers (SW sweep, RC reclaim, R retest, BLOCKED reason)", group = gD)
+showLbl  = input.bool(false, "Show text labels on chart (off = boxes only, details go to alerts/n8n)", group = gD)
+lblSize  = input.string("normal", "Text size for labels & boxes", options = ["small", "normal", "large"], group = gD)
+showSlow = input.bool(true, "Show slow lines (77 EMA, 200/400 SMA, 72/89 cloud)", group = gD)
+
+tz = "America/New_York"
+tfOK = not only2m or timeframe.period == "2"
+
+// ---------------- Lines (your settings) ----------------
+vwap = ta.vwap(hlc3)
+e5   = ta.ema(close, 5)
+e9   = ta.ema(close, 9)
+e20  = ta.ema(close, 20)
+e34  = ta.ema(close, 34)
+e50  = ta.ema(close, 50)
+e72  = ta.ema(close, 72)
+e77  = ta.ema(close, 77)
+e89  = ta.ema(close, 89)
+s200 = ta.sma(close, 200)
+s400 = ta.sma(close, 400)
+
+plot(vwap, "VWAP", color.yellow, 2)
+plot(e5, "EMA 5", color.new(color.white, 20), 1)
+plot(e9, "EMA 9", color.new(color.red, 10), 1)
+plot(e20, "EMA 20", color.new(color.blue, 0), 2)
+p34 = plot(e34, "EMA 34", color.new(color.blue, 70))
+p50 = plot(e50, "EMA 50", color.new(color.blue, 70))
+fill(p34, p50, e34 >= e50 ? color.new(color.blue, 75) : color.new(color.orange, 70), title = "Cloud 34/50")
+p72 = plot(showSlow ? e72 : na, "EMA 72", color.new(color.green, 80))
+p89 = plot(showSlow ? e89 : na, "EMA 89", color.new(color.green, 80))
+fill(p72, p89, e72 >= e89 ? color.new(color.green, 80) : color.new(color.red, 80), title = "Cloud 72/89")
+plot(showSlow ? e77 : na, "EMA 77", color.new(color.lime, 30), 1, plot.style_circles)
+plot(showSlow ? s200 : na, "SMA 200", color.new(color.purple, 0), 1)
+plot(showSlow ? s400 : na, "SMA 400", color.new(color.maroon, 0), 1)
+
+// ---------------- Volume ----------------
+volAvg = ta.sma(volume, volLen)
+rvol   = volAvg > 0 ? volume / volAvg : 0.0
+// Volume vs the last 5 bars: catches midday reversals when the 20-bar average is inflated by the selloff
+vol5   = ta.sma(volume, 5)[1]
+rv5    = vol5 > 0 ? volume / vol5 : 0.0
+volUp(float need) => rvol >= need or rv5 >= 1.3
+blkVol = math.sum(volume, 5)             // one 10-minute block on a 2-minute chart
+atr    = ta.atr(14)
+tol    = atr * tolAtr
+
+// ---------------- Sessions / day levels ----------------
+ymd    = year(time, tz) * 10000 + month(time, tz) * 100 + dayofmonth(time, tz)
+newDay = ymd != ymd[1]
+inPM   = not na(time(timeframe.period, "0400-0930", tz))
+inRTH  = not na(time(timeframe.period, "0930-1600", tz))
+inOR   = not na(time(timeframe.period, "0930-1000", tz))
+canEnt = not na(time(timeframe.period, entWin, tz))
+canEntAll = not na(time(timeframe.period, "0935-1530", tz))
+inDrive = not na(time(timeframe.period, "0932-1030", tz))
+flatT  = not na(time(timeframe.period, "1544-1600", tz))
+tenCls = inRTH and not inOR and (minute(time, tz) + 2) % 10 == 0   // this 2m bar closes a 10m candle
+
+[pdh, pdl] = request.security(syminfo.tickerid, "D", [high[1], low[1]], lookahead = barmerge.lookahead_on)
+
+var float pmh = na
+var float pml = na
+var float orH = na
+var float orL = na
+var float hod = na
+var float lod = na
+var float lastPH = na
+var float lastPL = na
+var float eqH = na
+var float eqL = na
+if newDay
+    pmh := na
+    pml := na
+    orH := na
+    orL := na
+    hod := na
+    lod := na
+    lastPH := na
+    lastPL := na
+    eqH := na
+    eqL := na
+if inPM
+    pmh := na(pmh) ? high : math.max(pmh, high)
+    pml := na(pml) ? low : math.min(pml, low)
+if inOR
+    orH := na(orH) ? high : math.max(orH, high)
+    orL := na(orL) ? low : math.min(orL, low)
+if inRTH
+    hod := na(hod) ? high : math.max(hod, high)
+    lod := na(lod) ? low : math.min(lod, low)
+orReady = inRTH and not inOR and not na(orH)
+
+// Equal highs / lows from 2m pivots
+ph = ta.pivothigh(high, 5, 5)
+pl = ta.pivotlow(low, 5, 5)
+if not na(ph)
+    if not na(lastPH) and math.abs(ph - lastPH) <= tol
+        eqH := math.max(ph, lastPH)
+    lastPH := ph
+if not na(pl)
+    if not na(lastPL) and math.abs(pl - lastPL) <= tol
+        eqL := math.min(pl, lastPL)
+    lastPL := pl
+
+plot(showPD ? pmh : na, "PM high", color.new(color.aqua, 20), 1, plot.style_linebr)
+plot(showPD ? pml : na, "PM low", color.new(color.aqua, 20), 1, plot.style_linebr)
+plot(showPD ? pdh : na, "Prior-day high", color.new(color.fuchsia, 20), 1, plot.style_stepline)
+plot(showPD ? pdl : na, "Prior-day low", color.new(color.fuchsia, 20), 1, plot.style_stepline)
+plot(showPD and orReady ? orH : na, "OR high (30m)", color.new(color.white, 30), 2, plot.style_linebr)
+plot(showPD and orReady ? orL : na, "OR low (30m)", color.new(color.white, 30), 2, plot.style_linebr)
+plot(showPD ? eqH : na, "Equal highs", color.new(color.orange, 30), 1, plot.style_circles)
+plot(showPD ? eqL : na, "Equal lows", color.new(color.orange, 30), 1, plot.style_circles)
+
+// Reversal/pullback retests: a dip to the 9 EMA is enough (V-shaped turns rarely tag the 20)
+tolRev = tol > 0 ? math.max(1.0, math.abs(e9 - e20) / tol + 1.0) : 1.0
+
+// ---------------- Retest engine ----------------
+// trig: the break happened (on volume). lvl: line price must retest and NOT close through.
+// inv: price that kills the idea. Returns [entry fired, stop price, stage]
+f_retest(bool trig, int dir, float lvl, float inv, float tMult) =>
+    var int   st     = 0
+    var float brkVol = na
+    var float rtHi   = na
+    var float rtLo   = na
+    var float rtVol  = na
+    var float invLvl = na
+    var int   bars   = 0
+    bool  fire   = false
+    float stopPx = na
+    if trig
+        st     := 1
+        brkVol := volume
+        invLvl := inv
+        bars   := 0
+    else if st > 0
+        bars += 1
+        bool closedThru = dir == 1 ? close < lvl : close > lvl
+        bool killed     = dir == 1 ? close < invLvl : close > invLvl
+        bool touched    = dir == 1 ? low <= lvl + tol * tMult : high >= lvl - tol * tMult
+        if closedThru or killed or bars > maxWait
+            st := 0
+        else if st == 1
+            if touched and volume < brkVol
+                st    := 2
+                rtHi  := high
+                rtLo  := low
+                rtVol := volume
+        else if st == 2
+            bool brk = dir == 1 ? close > rtHi : close < rtLo
+            if brk and volume > rtVol and (rvol >= 0.8 or rv5 >= 1.0)
+                fire   := true
+                stopPx := dir == 1 ? math.min(rtLo, low) : math.max(rtHi, high)
+                st     := 0
+            else if touched and volume < brkVol
+                rtHi  := high
+                rtLo  := low
+                rtVol := volume
+    [fire, stopPx, st]
+
+// ---------------- Filters ----------------
+// Last COMPLETED 10-minute candle (no repaint)
+[hC, hV, h34, h50] = request.security(syminfo.tickerid, "10", [close[1], ta.vwap(hlc3)[1], ta.ema(close, 34)[1], ta.ema(close, 50)[1]], lookahead = barmerge.lookahead_on)
+htfBull = not useHtf or (hC > hV and hC > math.max(h34, h50))
+htfBear = not useHtf or (hC < hV and hC < math.min(h34, h50))
+htfNotBear = not useHtf or not (hC < hV and hC < math.min(h34, h50))
+htfNotBull = not useHtf or not (hC > hV and hC > math.max(h34, h50))
+// Last COMPLETED 30-minute candle: bigger trend
+[h30C, h30A, h30B] = request.security(syminfo.tickerid, "30", [close[1], ta.ema(close, 34)[1], ta.ema(close, 50)[1]], lookahead = barmerge.lookahead_on)
+ok30L = not use30 or not (h30C < math.min(h30A, h30B))
+ok30S = not use30 or not (h30C > math.max(h30A, h30B))
+// Last COMPLETED 5-minute candle: confirmation for entries
+[m5C, m5E9, m5E20] = request.security(syminfo.tickerid, "5", [close[1], ta.ema(close, 9)[1], ta.ema(close, 20)[1]], lookahead = barmerge.lookahead_on)
+m5Bull = not use5m or (m5C > m5E9 and m5E9 > m5E20)
+m5Bear = not use5m or (m5C < m5E9 and m5E9 < m5E20)
+// Last COMPLETED trail-timeframe candle: used for the trailing stop
+[tHi, tLo, tC, tT] = request.security(syminfo.tickerid, trailTf, [high[1], low[1], close[1], time[1]], lookahead = barmerge.lookahead_on)
+vwX     = (close > vwap) != (close[1] > vwap[1]) ? 1 : 0
+vwCross = math.sum(vwX, 20)
+vwFlat  = math.abs(vwap - vwap[15]) < atr * 0.3
+chop    = useChop and (vwCross >= chopX or vwFlat)
+
+// ---------------- S1: 30m opening range break ----------------
+var bool orbUpDone = false
+var bool orbDnDone = false
+if newDay
+    orbUpDone := false
+    orbDnDone := false
+blkAvg  = volAvg * 5
+orbUpT  = s1 and tfOK and htfBull and orReady and tenCls and close > orH and not orbUpDone and blkVol >= blkAvg * volMult
+orbDnT  = s1 and tfOK and htfBear and orReady and tenCls and close < orL and not orbDnDone and blkVol >= blkAvg * volMult
+if orbUpT
+    orbUpDone := true
+if orbDnT
+    orbDnDone := true
+[s1L, s1LStop, s1LSt] = f_retest(orbUpT, 1, e20, s1In ? (orH + orL) / 2 : orH, 1.0)
+[s1S, s1SStop, s1SSt] = f_retest(orbDnT, -1, e20, s1In ? (orH + orL) / 2 : orL, 1.0)
+
+// ---------------- S2: liquidity sweep reversal ----------------
+strL = inRTH and low <= nz(lod, low) and vwap - low >= stretch * atr
+strH = inRTH and high >= nz(hod, high) and high - vwap >= stretch * atr
+// Real exhaustion turn in the last 60 min (only the stretched extreme itself counts)
+exhL = ta.barssince(strL) <= 30
+exhH = ta.barssince(strH) <= 30
+swBullLvl = strL or (not na(pml) and low < pml and close > pml) or (not na(pdl) and low < pdl and close > pdl) or (orReady and low < orL and close > orL) or (not na(eqL) and low < eqL and close > eqL)
+swBearLvl = strH or (not na(pmh) and high > pmh and close < pmh) or (not na(pdh) and high > pdh and close < pdh) or (orReady and high > orH and close < orH) or (not na(eqH) and high > eqH and close < eqH)
+var float swLow  = na
+var bool  swLStr = false
+var bool  swHStr = false
+var float swHigh = na
+var int   swLBar = na
+var int   swHBar = na
+if inRTH and swBullLvl
+    swLStr := strL or (swLStr and not na(swLBar) and bar_index - swLBar <= 30)
+    swLow  := low
+    swLBar := bar_index
+if inRTH and swBearLvl
+    swHStr := strH or (swHStr and not na(swHBar) and bar_index - swHBar <= 30)
+    swHigh := high
+    swHBar := bar_index
+// Seller/buyer exhaustion: heavy volume somewhere in the sweep zone (last 15 bars)
+climaxL = ta.highest(rvol, 15) >= volMult and not na(swLBar) and bar_index - swLBar <= 15
+climaxH = climaxL
+// Reclaim = first close back above the 9 EMA after the low (the 20 lags too far after a steep drop), green candle,
+// volume: normal/rising OR there was a volume climax at the low
+reclaimUp = s2 and tfOK and (swLStr or (not chop and ok30L)) and not na(swLBar) and bar_index - swLBar <= 30 and close > e9 and close[1] <= e9[1] and close > open and (rvol >= revVol or rv5 >= 1.0 or climaxL)
+reclaimDn = s2 and tfOK and (swHStr or (not chop and ok30S)) and not na(swHBar) and bar_index - swHBar <= 30 and close < e9 and close[1] >= e9[1] and close < open and (rvol >= revVol or rv5 >= 1.0 or climaxH)
+[s2Lr, s2LStopR, s2LSt] = f_retest(reclaimUp, 1, e9 - atr * 0.25, swLow, 2.0)
+[s2Sr, s2SStopR, s2SSt] = f_retest(reclaimDn, -1, e9 + atr * 0.25, swHigh, 2.0)
+// Aggressive V entry: 1-3 bars after the reclaim, a candle closes beyond the reclaim candle on rising volume
+rcUpHi = ta.valuewhen(reclaimUp, high, 0)
+rcUpLo = ta.valuewhen(reclaimUp, low, 0)
+rcDnLo = ta.valuewhen(reclaimDn, low, 0)
+rcDnHi = ta.valuewhen(reclaimDn, high, 0)
+bsRcUp = ta.barssince(reclaimUp)
+bsRcDn = ta.barssince(reclaimDn)
+s2LA = aggrRev and bsRcUp >= 1 and bsRcUp <= 3 and close > rcUpHi and close > e9 and close > open and volume > volume[1]
+s2SA = aggrRev and bsRcDn >= 1 and bsRcDn <= 3 and close < rcDnLo and close < e9 and close < open and volume > volume[1]
+s2LStop = s2Lr ? s2LStopR : rcUpLo
+s2SStop = s2Sr ? s2SStopR : rcDnHi
+s2L = s2Lr or s2LA
+s2S = s2Sr or s2SA
+
+// ---------------- S5: trend pullback ----------------
+// 10m trend up -> price dips into the 34/50 or 72/89 cloud (or below VWAP) -> reclaims 9 & 20 EMA -> retest -> confirm
+tf10Bull = hC > hV and hC > math.max(h34, h50)
+tf10Bear = hC < hV and hC < math.min(h34, h50)
+var int   pbLBar = na
+var float pbLow  = na
+var int   pbHBar = na
+var float pbHigh = na
+if s5 and inRTH and tf10Bull and (low <= math.max(e34, e50) or low <= vwap)
+    pbLow  := na(pbLBar) or bar_index - pbLBar > 30 ? low : math.min(pbLow, low)
+    pbLBar := bar_index
+if s5 and inRTH and tf10Bear and (high >= math.min(e34, e50) or high >= vwap)
+    pbHigh := na(pbHBar) or bar_index - pbHBar > 30 ? high : math.max(pbHigh, high)
+    pbHBar := bar_index
+pbUpT = s5 and tfOK and tf10Bull and not na(pbLBar) and bar_index - pbLBar <= 20 and close > e9 and close > e20 and close[1] <= e20[1] and volUp(1.0)
+pbDnT = s5 and tfOK and tf10Bear and not na(pbHBar) and bar_index - pbHBar <= 20 and close < e9 and close < e20 and close[1] >= e20[1] and volUp(1.0)
+[s5L, s5LStop, s5LSt] = f_retest(pbUpT, 1, e20, nz(pbLow, low), tolRev)
+[s5S, s5SStop, s5SSt] = f_retest(pbDnT, -1, e20, nz(pbHigh, high), tolRev)
+
+// ---------------- S3: VWAP reclaim / loss ----------------
+lo10 = ta.lowest(low, 10)
+hi10 = ta.highest(high, 10)
+vwUpT = s3 and tfOK and htfBull and not chop and inRTH and close > vwap and close[1] <= vwap[1] and e9 > e20 and rvol >= volMult
+vwDnT = s3 and tfOK and htfBear and not chop and inRTH and close < vwap and close[1] >= vwap[1] and e9 < e20 and rvol >= volMult
+[s3L, s3LStop, s3LSt] = f_retest(vwUpT, 1, vwap, lo10, 1.0)
+[s3S, s3SStop, s3SSt] = f_retest(vwDnT, -1, vwap, hi10, 1.0)
+
+// ---------------- S6: TLP (Trend, Level, Patience candle) ----------------
+// Evaluated on the session timeframe: 2m (9:30-10:00), 5m (10:00-11:00), 10m (11:00+), last COMPLETED candle.
+// PUT patience candle: down-trend (9<20 EMA, close below 9 & 20), candle tagged a level (VWAP / 20 EMA / 34-50 cloud),
+// volume LOWER than the previous candle, retrace <= 0.382 of the last leg, no SMA 200/400 support right below.
+// Entry: a 2m candle CLOSES below the patience candle low (it "holds" below). Stop: above the patience candle high.
+f_touch(float x, float tl) => not na(x) and low <= x + tl and high >= x - tl
+
+f_tlp() =>
+    v    = ta.vwap(hlc3)
+    a9   = ta.ema(close, 9)
+    a20  = ta.ema(close, 20)
+    a34  = ta.ema(close, 34)
+    a50  = ta.ema(close, 50)
+    m200 = ta.sma(close, 200)
+    m400 = ta.sma(close, 400)
+    at   = ta.atr(14)
+    tl   = at * 0.2
+    hh   = ta.highest(high, 20)
+    ll   = ta.lowest(low, 20)
+    leg  = hh - ll
+    lvl  = f_touch(v, tl) or f_touch(a20, tl) or f_touch(a34, tl) or f_touch(a50, tl)
+    lowV = volume < volume[1]
+    bearT = a9 < a20 and close < a9 and close < a20
+    bullT = a9 > a20 and close > a9 and close > a20
+    fibP  = leg > 0 and (high - ll) / leg <= fibMax
+    fibC  = leg > 0 and (hh - low) / leg <= fibMax
+    supNear = (not na(m200) and m200 < close and close - m200 < at * smaNear) or (not na(m400) and m400 < close and close - m400 < at * smaNear)
+    resNear = (not na(m200) and m200 > close and m200 - close < at * smaNear) or (not na(m400) and m400 > close and m400 - close < at * smaNear)
+    pPut  = bearT and lvl and lowV and fibP and not supNear
+    pCall = bullT and lvl and lowV and fibC and not resNear
+    [pPut[1], pCall[1], high[1], low[1], time[1]]
+
+[p2P, p2C, p2H, p2L, p2T]       = request.security(syminfo.tickerid, "2", f_tlp(), lookahead = barmerge.lookahead_on)
+[p5P, p5C, p5H, p5L, p5T]       = request.security(syminfo.tickerid, "5", f_tlp(), lookahead = barmerge.lookahead_on)
+[p10P, p10C, p10H, p10L, p10T]  = request.security(syminfo.tickerid, "10", f_tlp(), lookahead = barmerge.lookahead_on)
+in2  = not na(time(timeframe.period, "0930-1000", tz))
+in5  = not na(time(timeframe.period, "1000-1100", tz))
+pcP  = in2 ? p2P : in5 ? p5P : p10P
+pcC  = in2 ? p2C : in5 ? p5C : p10C
+pcH  = in2 ? p2H : in5 ? p5H : p10H
+pcL  = in2 ? p2L : in5 ? p5L : p10L
+pcT  = in2 ? p2T : in5 ? p5T : p10T
+pcWin = in2 ? 2 : in5 ? 5 : 10        // 2m bars allowed for the break (one candle of that timeframe)
+var int   tlpDir = 0
+var float tlpH   = na
+var float tlpL   = na
+var int   tlpBar = na
+newPC = s6 and inRTH and pcT != pcT[1] and (pcP or pcC)
+if newPC
+    tlpDir := pcP ? -1 : 1
+    tlpH   := pcH
+    tlpL   := pcL
+    tlpBar := bar_index
+tlpLive = tlpDir != 0 and not na(tlpBar) and bar_index - tlpBar <= pcWin
+s6S = s6 and tfOK and tlpLive and tlpDir == -1 and close < tlpL and barstate.isconfirmed
+s6L = s6 and tfOK and tlpLive and tlpDir == 1 and close > tlpH and barstate.isconfirmed
+if s6S or s6L or (tlpDir == -1 and close > tlpH) or (tlpDir == 1 and close < tlpL)
+    tlpDir := 0
+s6SStop = nz(tlpH, high) + syminfo.mintick
+s6LStop = nz(tlpL, low) - syminfo.mintick
+plot(showPD and tlpLive ? tlpH : na, "Patience high", color.new(color.orange, 0), 1, plot.style_linebr)
+plot(showPD and tlpLive ? tlpL : na, "Patience low", color.new(color.orange, 0), 1, plot.style_linebr)
+
+// ---------------- S4: opening drive ----------------
+xPmhUp = ta.crossover(close, pmh)
+xPmlDn = ta.crossunder(close, pml)
+drUpT = s4 and tfOK and inDrive and not na(pmh) and xPmhUp and rvol >= volMult and close > vwap
+drDnT = s4 and tfOK and inDrive and not na(pml) and xPmlDn and rvol >= volMult and close < vwap
+[s4L, s4LStop, s4LSt] = f_retest(drUpT, 1, e9, nz(pmh) - atr, 1.0)
+[s4S, s4SStop, s4SSt] = f_retest(drDnT, -1, e9, nz(pml) + atr, 1.0)
+
+// ---------------- Targets ----------------
+f_next(float[] lv, float px, int dir, float minD) =>
+    float best = na
+    for l in lv
+        if not na(l)
+            if dir == 1 and l > px + minD
+                best := na(best) ? l : math.min(best, l)
+            else if dir == -1 and l < px - minD
+                best := na(best) ? l : math.max(best, l)
+    best
+
+fmt(float x) => na(x) ? "null" : str.tostring(x, "#.##")
+
+// ---------------- Trade state ----------------
+var int    pos      = 0
+var float  entry    = na
+var float  stop     = na
+var float  t1       = na
+var float  t2       = na
+var bool   t1Hit    = false
+var bool   t2Hit    = false
+var bool   trailOn  = false
+var int    entryBar = na
+var int    entryT   = na
+var string strat    = ""
+
+exitMsg = ""
+t1Msg   = ""
+// Exit rules:
+//  1) initial stop = retest candle low/high (trade skipped if wider than maxRisk x ATR)
+//  2) once a full trail-timeframe (5m) candle formed AFTER entry closes in profit,
+//     stop trails that 5m candle's low (calls) / high (puts) - 2m noise no longer shakes you out
+//  3) Target 1 -> sell half (stop at least breakeven), Target 2 -> sell rest, 3:45 flat
+if pos == 1 and bar_index > entryBar
+    if not trailOn and tT >= entryT and tC > entry
+        trailOn := true
+    if trailOn and tT >= entryT
+        stop := math.max(stop, tLo)
+    if low <= stop
+        exitMsg := trailOn ? "SELL CALLS - 5m candle low broken" : "SELL CALLS - STOP"
+    else if high >= t2 and exitT2
+        exitMsg := "SELL REST CALLS - Target 2"
+    else if high >= t2 and not t2Hit
+        t2Hit := true
+        t1Hit := true
+        stop  := math.max(stop, t1)
+        t1Msg := "TARGET 2 HIT CALLS - sell more, stop to T1, runner trails"
+    else if flatT
+        exitMsg := "SELL CALLS - 3:45 flat"
+    else if not t1Hit and high >= t1
+        t1Hit := true
+        stop  := math.max(stop, entry)
+        t1Msg := "SELL HALF CALLS - Target 1, stop at least breakeven"
+else if pos == -1 and bar_index > entryBar
+    if not trailOn and tT >= entryT and tC < entry
+        trailOn := true
+    if trailOn and tT >= entryT
+        stop := math.min(stop, tHi)
+    if high >= stop
+        exitMsg := trailOn ? "SELL PUTS - 5m candle high broken" : "SELL PUTS - STOP"
+    else if low <= t2 and exitT2
+        exitMsg := "SELL REST PUTS - Target 2"
+    else if low <= t2 and not t2Hit
+        t2Hit := true
+        t1Hit := true
+        stop  := math.min(stop, t1)
+        t1Msg := "TARGET 2 HIT PUTS - sell more, stop to T1, runner trails"
+    else if flatT
+        exitMsg := "SELL PUTS - 3:45 flat"
+    else if not t1Hit and low <= t1
+        t1Hit := true
+        stop  := math.min(stop, entry)
+        t1Msg := "SELL HALF PUTS - Target 1, stop at least breakeven"
+
+exited = exitMsg != ""
+if exited
+    pos := 0
+
+// Trend setups (S1,S3) need: entry window + VWAP side + 30m not against.
+// Reversal (S2) and opening drive (S4) are exempt - they ARE the turn / the open.
+trendOkL = canEnt and ok30L and (not needVw or close > vwap)
+trendOkS = canEnt and ok30S and (not needVw or close < vwap)
+s1Lx = s1L and trendOkL
+s3Lx = s3L and trendOkL
+s1Sx = s1S and trendOkS
+s3Sx = s3S and trendOkS
+revL = s2L or s4L or s5L or s6L
+revS = s2S or s4S or s5S or s6S
+longFire  = s6L or s2L or s5L or s4L or s1Lx or s3Lx
+shortFire = s6S or s2S or s5S or s4S or s1Sx or s3Sx
+// No trades while CHOP (only real exhaustion reversals may still fire)
+chopLate = not na(time(timeframe.period, chopFrom, tz))
+firstHr  = not na(time(timeframe.period, "0930-1030", tz))
+// 2nd test: the swept low must be HIGHER than the low of day (it is a retest, not the first spike)
+s2Lok = not secondT or not firstHr or (not na(swLow) and swLow > nz(lod, swLow) + syminfo.mintick)
+s2Sok = not secondT or not firstHr or (not na(swHigh) and swHigh < nz(hod, swHigh) - syminfo.mintick)
+// S2 trend rule: reversal calls only above the 400 SMA, puts only below it
+s2Lok := s2Lok and (not s2Trend or na(s400) or close > s400)
+s2Sok := s2Sok and (not s2Trend or na(s400) or close < s400)
+longFire  := longFire and not (s2L and not (s6L or s5L or s4L or s1Lx or s3Lx) and not s2Lok)
+shortFire := shortFire and not (s2S and not (s6S or s5S or s4S or s1Sx or s3Sx) and not s2Sok)
+longFire  := longFire and (not noChop or not chop or not chopLate or (s2L and exhL))
+shortFire := shortFire and (not noChop or not chop or not chopLate or (s2S and exhH))
+lName  = s6L ? "S6 TLP PATIENCE" : s2L ? "S2 SWEEP REVERSAL" : s5L ? "S5 TREND PULLBACK" : s4L ? "S4 OPENING DRIVE" : s1Lx ? "S1 ORB 30m" : "S3 VWAP RECLAIM"
+sName  = s6S ? "S6 TLP PATIENCE" : s2S ? "S2 SWEEP REVERSAL" : s5S ? "S5 TREND PULLBACK" : s4S ? "S4 OPENING DRIVE" : s1Sx ? "S1 ORB 30m" : "S3 VWAP LOSS"
+lStop  = s6L ? s6LStop : s2L ? s2LStop : s5L ? s5LStop : s4L ? s4LStop : s1Lx ? s1LStop : s3LStop
+sStop  = s6S ? s6SStop : s2S ? s2SStop : s5S ? s5SStop : s4S ? s4SStop : s1Sx ? s1SStop : s3SStop
+levels = array.from(pmh, pml, pdh, pdl, orH, orL, eqH, eqL, hod, lod, vwap)
+
+// Opposite signal while in a trade -> close it and flip (e.g. PUT runner still open when the bottom reversal fires)
+flipped = false
+if barstate.isconfirmed and not exited and canEntAll and tfOK and ((pos == -1 and longFire and not shortFire) or (pos == 1 and shortFire and not longFire))
+    exitMsg := pos == 1 ? "SELL CALLS - opposite signal, flipping to PUTS" : "SELL PUTS - opposite signal, flipping to CALLS"
+    pos     := 0
+    exited  := true
+    flipped := true
+
+entryMsg = ""
+blockMsg = ""
+if pos == 0 and (not exited or flipped) and canEntAll and tfOK and barstate.isconfirmed and (longFire or shortFire)
+    isLg = longFire and not shortFire
+    rk   = isLg ? close - lStop : sStop - close
+    ok5  = isLg ? (s6L or (s2L and exhL) or (revL ? (not use5m or m5C > m5E9) : m5Bull)) : (s6S or (s2S and exhH) or (revS ? (not use5m or m5C < m5E9) : m5Bear))
+    blockMsg := longFire and shortFire ? "both sides" : rk <= 0 ? "stop on wrong side" : rk > atr * maxRisk and not capWide ? "stop too wide " + str.tostring(rk / atr, "#.#") + "xATR" : not ok5 ? "5m not confirming" : ""
+else if pos != 0 and (longFire or shortFire) and barstate.isconfirmed
+    blockMsg := "already in a trade"
+else if pos == 0 and (longFire or shortFire) and not canEntAll and barstate.isconfirmed
+    blockMsg := "outside entry time"
+else if pos == 0 and barstate.isconfirmed and ((s1L and not s1Lx) or (s3L and not s3Lx) or (s1S and not s1Sx) or (s3S and not s3Sx))
+    blockMsg := "S1/S3 trend filter (VWAP side / 30m / 9:50 window)"
+if pos == 0 and (not exited or flipped) and canEntAll and tfOK and barstate.isconfirmed
+    if longFire and not shortFire
+        lStopX = capWide and close - lStop > atr * maxRisk ? close - atr * maxRisk : lStop
+        risk = close - lStopX
+        if risk > 0 and (not cloudRule or (s2L and exhL) or close > math.max(e34, e50) or math.min(e34, e50) - close > atr * cloudFar) and risk <= atr * maxRisk + syminfo.mintick and (s6L or (s2L and exhL) or (revL ? (not use5m or m5C > m5E9) : m5Bull))
+            pos   := 1
+            entry := close
+            stop  := lStopX
+            strat := lName
+            a = f_next(levels, close, 1, risk * minR)
+            t1 := na(a) ? close + risk : math.min(a, close + risk * t1Cap)
+            b = f_next(levels, t1, 1, risk * minR)
+            t2 := na(b) ? close + risk * t2Cap : math.min(b, close + risk * t2Cap)
+            t2 := t2 <= t1 ? math.max(t1 + risk * 0.5, close + risk * t2Cap) : t2
+            if s2L and vwap > close + risk * minR
+                t1 := vwap
+                c = f_next(levels, vwap, 1, risk * minR)
+                t2 := na(c) ? vwap + risk : c
+            t1Hit := false
+            t2Hit := false
+            trailOn := false
+            entryBar := bar_index
+            entryT   := time
+            entryMsg := "BUY CALLS"
+    else if shortFire and not longFire
+        sStopX = capWide and sStop - close > atr * maxRisk ? close + atr * maxRisk : sStop
+        risk = sStopX - close
+        if risk > 0 and (not cloudRule or (s2S and exhH) or close < math.min(e34, e50) or close - math.max(e34, e50) > atr * cloudFar) and risk <= atr * maxRisk + syminfo.mintick and (s6S or (s2S and exhH) or (revS ? (not use5m or m5C < m5E9) : m5Bear))
+            pos   := -1
+            entry := close
+            stop  := sStopX
+            strat := sName
+            a = f_next(levels, close, -1, risk * minR)
+            t1 := na(a) ? close - risk : math.max(a, close - risk * t1Cap)
+            b = f_next(levels, t1, -1, risk * minR)
+            t2 := na(b) ? close - risk * t2Cap : math.max(b, close - risk * t2Cap)
+            t2 := t2 >= t1 ? math.min(t1 - risk * 0.5, close - risk * t2Cap) : t2
+            if s2S and vwap < close - risk * minR
+                t1 := vwap
+                c = f_next(levels, vwap, -1, risk * minR)
+                t2 := na(c) ? vwap - risk : c
+            t1Hit := false
+            t2Hit := false
+            trailOn := false
+            entryBar := bar_index
+            entryT   := time
+            entryMsg := "BUY PUTS"
+
+inPos = pos != 0
+
+// ---------------- Heads-up: POSSIBLE CALLS / PUTS ----------------
+// Fires when a turn starts (S2 reclaim or S6 patience candle) but before confirmation.
+// If the confirmation follows (retest + volume, or the break), the real BUY signal fires.
+watchMsg = ""
+watchWhy = ""
+if pos == 0 and barstate.isconfirmed and canEntAll and tfOK and entryMsg == ""
+    if reclaimUp or (newPC and pcC)
+        watchMsg := "POSSIBLE CALLS - watch"
+        watchWhy := reclaimUp ? "S2 turn started" : "S6 patience candle"
+    else if reclaimDn or (newPC and pcP)
+        watchMsg := "POSSIBLE PUTS - watch"
+        watchWhy := reclaimDn ? "S2 turn started" : "S6 patience candle"
+
+sz = lblSize == "small" ? size.small : lblSize == "large" ? size.large : size.normal
+
+// ---------------- Long/Short position box (TradingView style) ----------------
+var box  bxWin  = na
+var box  bxRisk = na
+var line lnT1   = na
+if watchMsg != "" and showLbl
+    label.new(bar_index, str.contains(watchMsg, "CALLS") ? low : high, watchMsg + "\n" + watchWhy, style = str.contains(watchMsg, "CALLS") ? label.style_label_up : label.style_label_down, color = color.new(color.yellow, 10), textcolor = color.black, size = sz)
+if entryMsg != ""
+    if flipped and not na(bxWin)
+        box.set_right(bxWin, bar_index)
+        box.set_right(bxRisk, bar_index)
+        line.set_x2(lnT1, bar_index)
+    isL  = pos == 1
+    rr   = math.abs(t2 - entry) / math.abs(entry - stop)
+    rr1  = math.abs(t1 - entry) / math.abs(entry - stop)
+    txtW = "T2 " + str.tostring(t2, format.mintick) + "   R:R 1:" + str.tostring(rr, "#.#") + "  (T1 1:" + str.tostring(rr1, "#.#") + ")"
+    bxWin  := box.new(bar_index, isL ? t2 : entry, bar_index + 10, isL ? entry : t2, border_color = color.new(color.green, 30), bgcolor = color.new(color.green, 80), text = showLbl ? txtW : "", text_color = color.white, text_size = sz, text_halign = text.align_left, text_valign = isL ? text.align_top : text.align_bottom)
+    bxRisk := box.new(bar_index, isL ? entry : stop, bar_index + 10, isL ? stop : entry, border_color = color.new(color.red, 30), bgcolor = color.new(color.red, 80), text = showLbl ? "Stop " + str.tostring(stop, format.mintick) : "", text_color = color.white, text_size = sz, text_halign = text.align_left, text_valign = isL ? text.align_bottom : text.align_top)
+    lnT1   := line.new(bar_index, t1, bar_index + 10, t1, color = color.new(color.lime, 0), style = line.style_dashed, width = 1)
+else if (inPos or exited) and not na(bxWin)
+    rightX = exited ? bar_index : math.max(box.get_right(bxWin), bar_index + 1)
+    box.set_right(bxWin, rightX)
+    box.set_right(bxRisk, rightX)
+    line.set_x2(lnT1, rightX)
+plot(inPos ? stop : na, "Stop (trailing)", color.new(color.red, 30), 1, plot.style_linebr)
+
+if entryMsg != "" and showLbl
+    isL = pos == 1
+    label.new(bar_index, isL ? low : high, (isL ? "CALLS\n" : "PUTS\n") + strat + "\nvol " + str.tostring(rvol, "#.#") + "x", style = isL ? label.style_label_up : label.style_label_down, color = isL ? color.green : color.red, textcolor = color.white, size = sz)
+if t1Msg != "" and showLbl
+    label.new(bar_index, pos == 1 ? high : low, t1Msg != "" and str.contains(t1Msg, "TARGET 2") ? "T2 HIT\nsell more" : "T1 HIT\nsell half", style = pos == 1 ? label.style_label_down : label.style_label_up, color = color.orange, textcolor = color.black, size = sz)
+if exited and showLbl
+    label.new(bar_index, close, "EXIT\n" + exitMsg, style = label.style_label_left, color = color.gray, textcolor = color.white, size = sz)
+
+// Retest markers: R = retest accepted (waiting for confirmation candle)
+anyRetestL = (s1LSt == 2 and s1LSt[1] != 2) or (s2LSt == 2 and s2LSt[1] != 2) or (s3LSt == 2 and s3LSt[1] != 2) or (s4LSt == 2 and s4LSt[1] != 2) or (s5LSt == 2 and s5LSt[1] != 2)
+anyRetestS = (s1SSt == 2 and s1SSt[1] != 2) or (s2SSt == 2 and s2SSt[1] != 2) or (s3SSt == 2 and s3SSt[1] != 2) or (s4SSt == 2 and s4SSt[1] != 2) or (s5SSt == 2 and s5SSt[1] != 2)
+plotshape(showDbg and inRTH and swBullLvl, "Sweep low", shape.triangleup, location.belowbar, color.new(color.aqua, 0), size = size.tiny, text = "SW")
+plotshape(showDbg and inRTH and swBearLvl, "Sweep high", shape.triangledown, location.abovebar, color.new(color.fuchsia, 0), size = size.tiny, text = "SW")
+plotshape(showDbg and (reclaimUp or pbUpT or orbUpT or vwUpT or drUpT), "Trigger long", shape.diamond, location.belowbar, color.new(color.yellow, 0), size = size.tiny, text = "RC")
+plotshape(showDbg and (reclaimDn or pbDnT or orbDnT or vwDnT or drDnT), "Trigger short", shape.diamond, location.abovebar, color.new(color.yellow, 0), size = size.tiny, text = "RC")
+if showDbg and blockMsg != ""
+    label.new(bar_index, (longFire or s1L or s3L) ? low : high, "BLOCKED: " + blockMsg, style = (longFire or s1L or s3L) ? label.style_label_up : label.style_label_down, color = color.new(color.gray, 20), textcolor = color.white, size = sz)
+plotshape(showDbg and anyRetestL, "Retest (long)", shape.circle, location.belowbar, color.new(color.lime, 0), size = size.tiny, text = "R")
+plotshape(showDbg and anyRetestS, "Retest (short)", shape.circle, location.abovebar, color.new(color.red, 0), size = size.tiny, text = "R")
+
+// ---------------- Dashboard ----------------
+volWord = rvol >= volMult ? "STRONG" : rvol >= 1.0 ? "normal" : "weak"
+var table dash = table.new(position.top_right, 2, 8, bgcolor = color.new(color.black, 15), border_width = 1)
+if barstate.islast
+    table.cell(dash, 0, 0, "Chart", text_color = color.white)
+    table.cell(dash, 1, 0, timeframe.period == "2" ? "2m OK" : "SWITCH TO 2m", text_color = timeframe.period == "2" ? color.lime : color.red)
+    table.cell(dash, 0, 1, "Volume", text_color = color.white)
+    table.cell(dash, 1, 1, volWord + " " + str.tostring(rvol, "#.#") + "x", text_color = rvol >= volMult ? color.lime : rvol >= 1.0 ? color.white : color.gray)
+    table.cell(dash, 0, 2, "vs VWAP", text_color = color.white)
+    table.cell(dash, 1, 2, close > vwap ? "above" : "below", text_color = close > vwap ? color.lime : color.red)
+    table.cell(dash, 0, 3, "9 vs 20", text_color = color.white)
+    table.cell(dash, 1, 3, e9 > e20 ? "bull" : "bear", text_color = e9 > e20 ? color.lime : color.red)
+    table.cell(dash, 0, 4, "Position", text_color = color.white)
+    table.cell(dash, 1, 4, pos == 1 ? "CALLS " + strat : pos == -1 ? "PUTS " + strat : "flat", text_color = color.white)
+    table.cell(dash, 0, 5, "PM data", text_color = color.white)
+    table.cell(dash, 1, 5, na(pmh) ? "turn ON ext. hours" : "OK", text_color = na(pmh) ? color.red : color.lime)
+    table.cell(dash, 0, 6, "10m trend", text_color = color.white)
+    table.cell(dash, 1, 6, hC > hV and hC > math.max(h34, h50) ? "BULL (calls)" : hC < hV and hC < math.min(h34, h50) ? "BEAR (puts)" : "mixed", text_color = hC > hV and hC > math.max(h34, h50) ? color.lime : hC < hV and hC < math.min(h34, h50) ? color.red : color.gray)
+    table.cell(dash, 0, 7, "S3 chop", text_color = color.white)
+    table.cell(dash, 1, 7, chop ? "CHOP - S3 off" : "clean", text_color = chop ? color.orange : color.lime)
+
+// ---------------- Alerts (JSON for n8n webhook) ----------------
+f_json(string act, string note) =>
+    '{"key":"' + hookKey + '","ticker":"' + syminfo.ticker + '","action":"' + act + '","strategy":"' + strat + '","price":' + fmt(close) + ',"stop":' + fmt(stop) + ',"t1":' + fmt(t1) + ',"t2":' + fmt(t2) + ',"rvol":' + fmt(rvol) + ',"vwap":' + fmt(vwap) + ',"note":"' + note + '","time":"' + str.format_time(time_close, "yyyy-MM-dd HH:mm", tz) + '"}'
+
+if entryMsg != ""
+    alert(f_json(entryMsg, "entry after successful retest + volume confirmation"), alert.freq_once_per_bar_close)
+if watchMsg != ""
+    alert('{"key":"' + hookKey + '","ticker":"' + syminfo.ticker + '","action":"' + watchMsg + '","strategy":"' + watchWhy + '","price":' + fmt(close) + ',"stop":null,"t1":null,"t2":null,"rvol":' + fmt(rvol) + ',"note":"heads-up only - wait for BUY","time":"' + str.format_time(time_close, "yyyy-MM-dd HH:mm", tz) + '"}', alert.freq_once_per_bar_close)
+if t1Msg != ""
+    alert(f_json(t1Msg, "take half"), alert.freq_once_per_bar)
+if exited
+    alert(f_json(exitMsg, "exit"), alert.freq_once_per_bar)
+
+// ---------------- Watchlist-friendly alert (alertcondition) ----------------
+// Action codes: 1 BUY CALLS, -1 BUY PUTS, 2 SELL HALF CALLS, -2 SELL HALF PUTS, 3 EXIT CALLS, -3 EXIT PUTS
+// Strategy codes: 1 S1 ORB, 2 S2 SWEEP, 3 S3 VWAP
+wasLong  = pos == 1 or (exited and pos[1] == 1)
+actCode  = entryMsg != "" ? (pos == 1 ? 1 : -1) : t1Msg != "" ? (pos == 1 ? 2 : -2) : exited ? (wasLong ? 3 : -3) : 0
+stratCode = str.contains(strat, "S1") ? 1 : str.contains(strat, "S2") ? 2 : str.contains(strat, "S3") ? 3 : str.contains(strat, "S4") ? 4 : str.contains(strat, "S5") ? 5 : str.contains(strat, "S6") ? 6 : 0
+plot(actCode, "ActionCode", display = display.data_window)
+plot(stratCode, "StrategyCode", display = display.data_window)
+plot(rvol, "RVOL", display = display.data_window)
+alertcondition(actCode != 0, "CC-Multi ANY SIGNAL (use for watchlists)", '{"src":"cc-ac","ticker":"{{ticker}}","code":{{plot("ActionCode")}},"strat":{{plot("StrategyCode")}},"price":{{close}},"stop":{{plot("Stop")}},"t1":{{plot("Target 1")}},"t2":{{plot("Target 2")}},"rvol":{{plot("RVOL")}},"time":"{{timenow}}"}')
+alertcondition(actCode == 1 or actCode == -1, "CC-Multi ENTRIES (trigger: once per bar close)", '{"src":"cc-ac","ticker":"{{ticker}}","code":{{plot("ActionCode")}},"strat":{{plot("StrategyCode")}},"price":{{close}},"stop":{{plot("Stop")}},"t1":{{plot("Target 1")}},"t2":{{plot("Target 2")}},"rvol":{{plot("RVOL")}},"time":"{{timenow}}"}')
+alertcondition(math.abs(actCode) >= 2, "CC-Multi EXITS + T1 (trigger: once per bar)", '{"src":"cc-ac","ticker":"{{ticker}}","code":{{plot("ActionCode")}},"strat":{{plot("StrategyCode")}},"price":{{close}},"stop":{{plot("Stop")}},"t1":{{plot("Target 1")}},"t2":{{plot("Target 2")}},"rvol":{{plot("RVOL")}},"time":"{{timenow}}"}')
+
+// END OF SCRIPT
