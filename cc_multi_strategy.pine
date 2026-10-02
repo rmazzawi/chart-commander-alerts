@@ -33,6 +33,9 @@ entWin  = input.session("0950-1530", "Entry window (ET) - skips opening chaos", 
 revVol  = input.float(0.8, "Reversal (S2) reclaim candle: min volume x average", step = 0.1, group = gR)
 stretch = input.float(2.5, "Reversal: stretch from VWAP that counts as exhaustion (x ATR)", step = 0.25, group = gR)
 s1In    = input.bool(true, "S1: allow the pullback back INSIDE the 30m range (killed only below range middle)", group = gR)
+s6      = input.bool(true, "S6 - TLP: Trend + Level + Patience candle (2m 9:30-10, 5m 10-11, 10m after 11)", group = gR)
+fibMax  = input.float(0.382, "S6: patience candle may retrace at most this Fib of the last leg", step = 0.01, group = gR)
+smaNear = input.float(1.0, "S6: skip if SMA 200/400 is within x ATR in the trade direction (bounce risk)", step = 0.1, group = gR)
 s5      = input.bool(true, "S5 - Trend pullback (dip into 34/50 or 72/89 cloud in a 10m trend, then 9/20 reclaim)", group = gR)
 s4      = input.bool(true, "S4 - Opening drive (PM high/low break + 9 EMA retest, 9:35-10:30)", group = gR)
 exitT2  = input.bool(false, "Exit everything at Target 2 (off = let runner trail)", group = gR)
@@ -306,6 +309,69 @@ vwDnT = s3 and tfOK and htfBear and not chop and inRTH and close < vwap and clos
 [s3L, s3LStop, s3LSt] = f_retest(vwUpT, 1, vwap, lo10, 1.0)
 [s3S, s3SStop, s3SSt] = f_retest(vwDnT, -1, vwap, hi10, 1.0)
 
+// ---------------- S6: TLP (Trend, Level, Patience candle) ----------------
+// Evaluated on the session timeframe: 2m (9:30-10:00), 5m (10:00-11:00), 10m (11:00+), last COMPLETED candle.
+// PUT patience candle: down-trend (9<20 EMA, close below 9 & 20), candle tagged a level (VWAP / 20 EMA / 34-50 cloud),
+// volume LOWER than the previous candle, retrace <= 0.382 of the last leg, no SMA 200/400 support right below.
+// Entry: a 2m candle CLOSES below the patience candle low (it "holds" below). Stop: above the patience candle high.
+f_touch(float x, float tl) => not na(x) and low <= x + tl and high >= x - tl
+
+f_tlp() =>
+    v    = ta.vwap(hlc3)
+    a9   = ta.ema(close, 9)
+    a20  = ta.ema(close, 20)
+    a34  = ta.ema(close, 34)
+    a50  = ta.ema(close, 50)
+    m200 = ta.sma(close, 200)
+    m400 = ta.sma(close, 400)
+    at   = ta.atr(14)
+    tl   = at * 0.2
+    hh   = ta.highest(high, 20)
+    ll   = ta.lowest(low, 20)
+    leg  = hh - ll
+    lvl  = f_touch(v, tl) or f_touch(a20, tl) or f_touch(a34, tl) or f_touch(a50, tl)
+    lowV = volume < volume[1]
+    bearT = a9 < a20 and close < a9 and close < a20
+    bullT = a9 > a20 and close > a9 and close > a20
+    fibP  = leg > 0 and (high - ll) / leg <= fibMax
+    fibC  = leg > 0 and (hh - low) / leg <= fibMax
+    supNear = (not na(m200) and m200 < close and close - m200 < at * smaNear) or (not na(m400) and m400 < close and close - m400 < at * smaNear)
+    resNear = (not na(m200) and m200 > close and m200 - close < at * smaNear) or (not na(m400) and m400 > close and m400 - close < at * smaNear)
+    pPut  = bearT and lvl and lowV and fibP and not supNear
+    pCall = bullT and lvl and lowV and fibC and not resNear
+    [pPut[1], pCall[1], high[1], low[1], time[1]]
+
+[p2P, p2C, p2H, p2L, p2T]       = request.security(syminfo.tickerid, "2", f_tlp(), lookahead = barmerge.lookahead_on)
+[p5P, p5C, p5H, p5L, p5T]       = request.security(syminfo.tickerid, "5", f_tlp(), lookahead = barmerge.lookahead_on)
+[p10P, p10C, p10H, p10L, p10T]  = request.security(syminfo.tickerid, "10", f_tlp(), lookahead = barmerge.lookahead_on)
+in2  = not na(time(timeframe.period, "0930-1000", tz))
+in5  = not na(time(timeframe.period, "1000-1100", tz))
+pcP  = in2 ? p2P : in5 ? p5P : p10P
+pcC  = in2 ? p2C : in5 ? p5C : p10C
+pcH  = in2 ? p2H : in5 ? p5H : p10H
+pcL  = in2 ? p2L : in5 ? p5L : p10L
+pcT  = in2 ? p2T : in5 ? p5T : p10T
+pcWin = in2 ? 2 : in5 ? 5 : 10        // 2m bars allowed for the break (one candle of that timeframe)
+var int   tlpDir = 0
+var float tlpH   = na
+var float tlpL   = na
+var int   tlpBar = na
+newPC = s6 and inRTH and pcT != pcT[1] and (pcP or pcC)
+if newPC
+    tlpDir := pcP ? -1 : 1
+    tlpH   := pcH
+    tlpL   := pcL
+    tlpBar := bar_index
+tlpLive = tlpDir != 0 and not na(tlpBar) and bar_index - tlpBar <= pcWin
+s6S = s6 and tfOK and tlpLive and tlpDir == -1 and close < tlpL and barstate.isconfirmed
+s6L = s6 and tfOK and tlpLive and tlpDir == 1 and close > tlpH and barstate.isconfirmed
+if s6S or s6L or (tlpDir == -1 and close > tlpH) or (tlpDir == 1 and close < tlpL)
+    tlpDir := 0
+s6SStop = nz(tlpH, high) + syminfo.mintick
+s6LStop = nz(tlpL, low) - syminfo.mintick
+plot(showPD and tlpLive ? tlpH : na, "Patience high", color.new(color.orange, 0), 1, plot.style_linebr)
+plot(showPD and tlpLive ? tlpL : na, "Patience low", color.new(color.orange, 0), 1, plot.style_linebr)
+
 // ---------------- S4: opening drive ----------------
 xPmhUp = ta.crossover(close, pmh)
 xPmlDn = ta.crossunder(close, pml)
@@ -400,14 +466,14 @@ s1Lx = s1L and trendOkL
 s3Lx = s3L and trendOkL
 s1Sx = s1S and trendOkS
 s3Sx = s3S and trendOkS
-revL = s2L or s4L or s5L
-revS = s2S or s4S or s5S
-longFire  = s2L or s5L or s4L or s1Lx or s3Lx
-shortFire = s2S or s5S or s4S or s1Sx or s3Sx
-lName  = s2L ? "S2 SWEEP REVERSAL" : s5L ? "S5 TREND PULLBACK" : s4L ? "S4 OPENING DRIVE" : s1Lx ? "S1 ORB 30m" : "S3 VWAP RECLAIM"
-sName  = s2S ? "S2 SWEEP REVERSAL" : s5S ? "S5 TREND PULLBACK" : s4S ? "S4 OPENING DRIVE" : s1Sx ? "S1 ORB 30m" : "S3 VWAP LOSS"
-lStop  = s2L ? s2LStop : s5L ? s5LStop : s4L ? s4LStop : s1Lx ? s1LStop : s3LStop
-sStop  = s2S ? s2SStop : s5S ? s5SStop : s4S ? s4SStop : s1Sx ? s1SStop : s3SStop
+revL = s2L or s4L or s5L or s6L
+revS = s2S or s4S or s5S or s6S
+longFire  = s6L or s2L or s5L or s4L or s1Lx or s3Lx
+shortFire = s6S or s2S or s5S or s4S or s1Sx or s3Sx
+lName  = s6L ? "S6 TLP PATIENCE" : s2L ? "S2 SWEEP REVERSAL" : s5L ? "S5 TREND PULLBACK" : s4L ? "S4 OPENING DRIVE" : s1Lx ? "S1 ORB 30m" : "S3 VWAP RECLAIM"
+sName  = s6S ? "S6 TLP PATIENCE" : s2S ? "S2 SWEEP REVERSAL" : s5S ? "S5 TREND PULLBACK" : s4S ? "S4 OPENING DRIVE" : s1Sx ? "S1 ORB 30m" : "S3 VWAP LOSS"
+lStop  = s6L ? s6LStop : s2L ? s2LStop : s5L ? s5LStop : s4L ? s4LStop : s1Lx ? s1LStop : s3LStop
+sStop  = s6S ? s6SStop : s2S ? s2SStop : s5S ? s5SStop : s4S ? s4SStop : s1Sx ? s1SStop : s3SStop
 levels = array.from(pmh, pml, pdh, pdl, orH, orL, eqH, eqL, hod, lod, vwap)
 
 // Opposite signal while in a trade -> close it and flip (e.g. PUT runner still open when the bottom reversal fires)
@@ -423,7 +489,7 @@ blockMsg = ""
 if pos == 0 and (not exited or flipped) and canEntAll and tfOK and barstate.isconfirmed and (longFire or shortFire)
     isLg = longFire and not shortFire
     rk   = isLg ? close - lStop : sStop - close
-    ok5  = isLg ? (revL ? (not use5m or m5C > m5E9) : m5Bull) : (revS ? (not use5m or m5C < m5E9) : m5Bear)
+    ok5  = isLg ? (s6L or (revL ? (not use5m or m5C > m5E9) : m5Bull)) : (s6S or (revS ? (not use5m or m5C < m5E9) : m5Bear))
     blockMsg := longFire and shortFire ? "both sides" : rk <= 0 ? "stop on wrong side" : rk > atr * maxRisk and not capWide ? "stop too wide " + str.tostring(rk / atr, "#.#") + "xATR" : not ok5 ? "5m not confirming" : ""
 else if pos != 0 and (longFire or shortFire) and barstate.isconfirmed
     blockMsg := "already in a trade"
@@ -435,7 +501,7 @@ if pos == 0 and (not exited or flipped) and canEntAll and tfOK and barstate.isco
     if longFire and not shortFire
         lStopX = capWide and close - lStop > atr * maxRisk ? close - atr * maxRisk : lStop
         risk = close - lStopX
-        if risk > 0 and risk <= atr * maxRisk + syminfo.mintick and (revL ? (not use5m or m5C > m5E9) : m5Bull)
+        if risk > 0 and risk <= atr * maxRisk + syminfo.mintick and (s6L or (revL ? (not use5m or m5C > m5E9) : m5Bull))
             pos   := 1
             entry := close
             stop  := lStopX
@@ -458,7 +524,7 @@ if pos == 0 and (not exited or flipped) and canEntAll and tfOK and barstate.isco
     else if shortFire and not longFire
         sStopX = capWide and sStop - close > atr * maxRisk ? close + atr * maxRisk : sStop
         risk = sStopX - close
-        if risk > 0 and risk <= atr * maxRisk + syminfo.mintick and (revS ? (not use5m or m5C < m5E9) : m5Bear)
+        if risk > 0 and risk <= atr * maxRisk + syminfo.mintick and (s6S or (revS ? (not use5m or m5C < m5E9) : m5Bear))
             pos   := -1
             entry := close
             stop  := sStopX
@@ -563,7 +629,7 @@ if exited
 // Strategy codes: 1 S1 ORB, 2 S2 SWEEP, 3 S3 VWAP
 wasLong  = pos == 1 or (exited and pos[1] == 1)
 actCode  = entryMsg != "" ? (pos == 1 ? 1 : -1) : t1Msg != "" ? (pos == 1 ? 2 : -2) : exited ? (wasLong ? 3 : -3) : 0
-stratCode = str.contains(strat, "S1") ? 1 : str.contains(strat, "S2") ? 2 : str.contains(strat, "S3") ? 3 : str.contains(strat, "S4") ? 4 : str.contains(strat, "S5") ? 5 : 0
+stratCode = str.contains(strat, "S1") ? 1 : str.contains(strat, "S2") ? 2 : str.contains(strat, "S3") ? 3 : str.contains(strat, "S4") ? 4 : str.contains(strat, "S5") ? 5 : str.contains(strat, "S6") ? 6 : 0
 plot(actCode, "ActionCode", display = display.data_window)
 plot(stratCode, "StrategyCode", display = display.data_window)
 plot(rvol, "RVOL", display = display.data_window)
