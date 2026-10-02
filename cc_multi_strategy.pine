@@ -554,12 +554,27 @@ if pos == 0 and (not exited or flipped) and canEntAll and tfOK and barstate.isco
 
 inPos = pos != 0
 
+// ---------------- Heads-up: POSSIBLE CALLS / PUTS ----------------
+// Fires when a turn starts (S2 reclaim or S6 patience candle) but before confirmation.
+// If the confirmation follows (retest + volume, or the break), the real BUY signal fires.
+watchMsg = ""
+watchWhy = ""
+if pos == 0 and barstate.isconfirmed and canEntAll and tfOK and entryMsg == ""
+    if reclaimUp or (newPC and pcC)
+        watchMsg := "POSSIBLE CALLS - watch"
+        watchWhy := reclaimUp ? "S2 turn started" : "S6 patience candle"
+    else if reclaimDn or (newPC and pcP)
+        watchMsg := "POSSIBLE PUTS - watch"
+        watchWhy := reclaimDn ? "S2 turn started" : "S6 patience candle"
+
 sz = lblSize == "small" ? size.small : lblSize == "large" ? size.large : size.normal
 
 // ---------------- Long/Short position box (TradingView style) ----------------
 var box  bxWin  = na
 var box  bxRisk = na
 var line lnT1   = na
+if watchMsg != ""
+    label.new(bar_index, str.contains(watchMsg, "CALLS") ? low : high, watchMsg + "\n" + watchWhy, style = str.contains(watchMsg, "CALLS") ? label.style_label_up : label.style_label_down, color = color.new(color.yellow, 10), textcolor = color.black, size = sz)
 if entryMsg != ""
     if flipped and not na(bxWin)
         box.set_right(bxWin, bar_index)
@@ -628,6 +643,8 @@ f_json(string act, string note) =>
 
 if entryMsg != ""
     alert(f_json(entryMsg, "entry after successful retest + volume confirmation"), alert.freq_once_per_bar_close)
+if watchMsg != ""
+    alert('{"key":"' + hookKey + '","ticker":"' + syminfo.ticker + '","action":"' + watchMsg + '","strategy":"' + watchWhy + '","price":' + fmt(close) + ',"stop":null,"t1":null,"t2":null,"rvol":' + fmt(rvol) + ',"note":"heads-up only - wait for BUY","time":"' + str.format_time(time_close, "yyyy-MM-dd HH:mm", tz) + '"}', alert.freq_once_per_bar_close)
 if t1Msg != ""
     alert(f_json(t1Msg, "take half"), alert.freq_once_per_bar)
 if exited
