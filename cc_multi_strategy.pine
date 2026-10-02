@@ -36,6 +36,8 @@ s1In    = input.bool(true, "S1: allow the pullback back INSIDE the 30m range (ki
 s6      = input.bool(true, "S6 - TLP: Trend + Level + Patience candle (2m 9:30-10, 5m 10-11, 10m after 11)", group = gR)
 fibMax  = input.float(0.382, "S6: patience candle may retrace at most this Fib of the last leg", step = 0.01, group = gR)
 smaNear = input.float(1.0, "S6: skip if SMA 200/400 is within x ATR in the trade direction (bounce risk)", step = 0.1, group = gR)
+needPC  = input.bool(true, "Every entry needs a contained patience candle (inside bar + lower volume) in the last 2 candles", group = gR)
+bosChop = input.bool(true, "In CHOP: other setups allowed only after a break of the previous swing high/low", group = gR)
 chopOnly6 = input.bool(true, "In CHOP: only S6 (patience candle rejection at VWAP/level) may trade", group = gR)
 s5      = input.bool(true, "S5 - Trend pullback (dip into 34/50 or 72/89 cloud in a 10m trend, then 9/20 reclaim)", group = gR)
 s4      = input.bool(true, "S4 - Opening drive (PM high/low break + 9 EMA retest, 9:35-10:30)", group = gR)
@@ -346,7 +348,7 @@ f_tlp() =>
     ll   = ta.lowest(low, 20)
     leg  = hh - ll
     lvl  = f_touch(v, tl) or f_touch(a20, tl) or f_touch(a34, tl) or f_touch(a50, tl)
-    lowV = volume < volume[1]
+    lowV = volume < volume[1] and high <= high[1] + at * 0.1 and low >= low[1] - at * 0.1   // contained + lighter volume
     bearT = a9 < a20 and close < a9 and close < a20
     bullT = a9 > a20 and close > a9 and close > a20
     fibP  = leg > 0 and (high - ll) / leg <= fibMax
@@ -500,8 +502,20 @@ s1Sx = s1S and trendOkS
 s3Sx = s3S and trendOkS
 revL = s2L or s4L or s5L or s6L
 revS = s2S or s4S or s5S or s6S
-longFire  = s6L or (s2L and swLStr and bar_index - strLBar <= 30) or (not (chopOnly6 and chop) and (s2L or s5L or s4L or s1Lx or s3Lx))
-shortFire = s6S or (s2S and swHStr and bar_index - strHBar <= 30) or (not (chopOnly6 and chop) and (s2S or s5S or s4S or s1Sx or s3Sx))
+// Contained patience candle on the 2m chart (inside the previous candle, lower volume)
+cont2    = high <= high[1] + atr * 0.1 and low >= low[1] - atr * 0.1 and volume < volume[1]
+recentPC = cont2[1] or cont2[2]
+// Market structure: chop ends only when price breaks the previous swing high / low
+swingH = ta.valuewhen(not na(ph), ph, 0)
+swingL = ta.valuewhen(not na(pl), pl, 0)
+bosUp  = ta.barssince(ta.crossover(close, swingH)) <= 10
+bosDn  = ta.barssince(ta.crossunder(close, swingL)) <= 10
+chopL  = chopOnly6 and chop and not (bosChop and bosUp)
+chopS  = chopOnly6 and chop and not (bosChop and bosDn)
+longFire  = s6L or (s2L and swLStr and bar_index - strLBar <= 30) or (not chopL and (s2L or s5L or s4L or s1Lx or s3Lx))
+longFire  := longFire and (s6L or not needPC or recentPC)
+shortFire = s6S or (s2S and swHStr and bar_index - strHBar <= 30) or (not chopS and (s2S or s5S or s4S or s1Sx or s3Sx))
+shortFire := shortFire and (s6S or not needPC or recentPC)
 lName  = s6L ? "S6 TLP PATIENCE" : s2L ? "S2 SWEEP REVERSAL" : s5L ? "S5 TREND PULLBACK" : s4L ? "S4 OPENING DRIVE" : s1Lx ? "S1 ORB 30m" : "S3 VWAP RECLAIM"
 sName  = s6S ? "S6 TLP PATIENCE" : s2S ? "S2 SWEEP REVERSAL" : s5S ? "S5 TREND PULLBACK" : s4S ? "S4 OPENING DRIVE" : s1Sx ? "S1 ORB 30m" : "S3 VWAP LOSS"
 lStop  = s6L ? s6LStop : s2L ? s2LStop : s5L ? s5LStop : s4L ? s4LStop : s1Lx ? s1LStop : s3LStop
