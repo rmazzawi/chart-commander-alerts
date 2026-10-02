@@ -51,7 +51,8 @@ hookKey = input.string("change-me", "Webhook key (must match n8n)", group = gA)
 
 gD       = "Display"
 showPD   = input.bool(true, "Show levels (PM, PD, OR, EQ)", group = gD)
-showDbg  = input.bool(true, "Show debug markers (SW sweep, RC reclaim, R retest, BLOCKED reason)", group = gD)
+showDbg  = input.bool(false, "Show debug markers (SW sweep, RC reclaim, R retest, BLOCKED reason)", group = gD)
+showWatch = input.bool(false, "Show POSSIBLE (heads-up) labels on chart (alerts are always sent)", group = gD)
 lblSize  = input.string("normal", "Text size for labels & boxes", options = ["small", "normal", "large"], group = gD)
 showSlow = input.bool(true, "Show slow lines (77 EMA, 200/400 SMA, 72/89 cloud)", group = gD)
 
@@ -573,7 +574,7 @@ sz = lblSize == "small" ? size.small : lblSize == "large" ? size.large : size.no
 var box  bxWin  = na
 var box  bxRisk = na
 var line lnT1   = na
-if watchMsg != ""
+if watchMsg != "" and showWatch
     label.new(bar_index, str.contains(watchMsg, "CALLS") ? low : high, watchMsg + "\n" + watchWhy, style = str.contains(watchMsg, "CALLS") ? label.style_label_up : label.style_label_down, color = color.new(color.yellow, 10), textcolor = color.black, size = sz)
 if entryMsg != ""
     if flipped and not na(bxWin)
