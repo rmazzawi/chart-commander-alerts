@@ -55,6 +55,7 @@ cloudFar  = input.float(1.5, "...except reversals far from the cloud (more than 
 noChop    = input.bool(true, "No trades when CHOP after the time below (except real exhaustion reversals)", group = gC)
 chopFrom  = input.session("1130-1600", "Chop block active during (ET)", group = gC)
 secondT   = input.bool(true, "First hour: S2 reversal only on a 2nd test (lower high for puts / higher low for calls)", group = gC)
+trendGuard = input.bool(true, "No puts in a rising trend (VWAP + 34/50 cloud up, price above cloud) / no calls in a falling one", group = gC)
 gD       = "Display"
 showPD   = input.bool(true, "Show levels (PM, PD, OR, EQ)", group = gD)
 showDbg  = input.bool(false, "Show debug markers (SW sweep, RC reclaim, R retest, BLOCKED reason)", group = gD)
@@ -497,6 +498,11 @@ longFire  := longFire and not (s2L and not (s6L or s5L or s4L or s1Lx or s3Lx) a
 shortFire := shortFire and not (s2S and not (s6S or s5S or s4S or s1Sx or s3Sx) and not s2Sok)
 longFire  := longFire and (not noChop or not chop or not chopLate or (s2L and exhL))
 shortFire := shortFire and (not noChop or not chop or not chopLate or (s2S and exhH))
+// Strong trend guard: no puts while VWAP and the 34/50 cloud point UP and price has not closed below the cloud (mirror for calls)
+upStrong = vwap > vwap[10] and e34 > e34[10] and e50 > e50[10] and close >= math.min(e34, e50)
+dnStrong = vwap < vwap[10] and e34 < e34[10] and e50 < e50[10] and close <= math.max(e34, e50)
+shortFire := shortFire and not (trendGuard and upStrong)
+longFire  := longFire and not (trendGuard and dnStrong)
 lName  = s6L ? "S6 TLP PATIENCE" : s2L ? "S2 SWEEP REVERSAL" : s5L ? "S5 TREND PULLBACK" : s4L ? "S4 OPENING DRIVE" : s1Lx ? "S1 ORB 30m" : "S3 VWAP RECLAIM"
 sName  = s6S ? "S6 TLP PATIENCE" : s2S ? "S2 SWEEP REVERSAL" : s5S ? "S5 TREND PULLBACK" : s4S ? "S4 OPENING DRIVE" : s1Sx ? "S1 ORB 30m" : "S3 VWAP LOSS"
 lStop  = s6L ? s6LStop : s2L ? s2LStop : s5L ? s5LStop : s4L ? s4LStop : s1Lx ? s1LStop : s3LStop
