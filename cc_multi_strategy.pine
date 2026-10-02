@@ -52,6 +52,7 @@ hookKey = input.string("change-me", "Webhook key (must match n8n)", group = gA)
 gC       = "Cloud rule"
 cloudRule = input.bool(true, "Calls only if the candle closes ABOVE the 34/50 cloud, puts only BELOW it", group = gC)
 cloudFar  = input.float(1.5, "...except reversals far from the cloud (more than x ATR away)", step = 0.25, group = gC)
+noChop    = input.bool(true, "No trades at all when CHOP (except real exhaustion reversals)", group = gC)
 gD       = "Display"
 showPD   = input.bool(true, "Show levels (PM, PD, OR, EQ)", group = gD)
 showDbg  = input.bool(false, "Show debug markers (SW sweep, RC reclaim, R retest, BLOCKED reason)", group = gD)
@@ -484,6 +485,9 @@ revL = s2L or s4L or s5L or s6L
 revS = s2S or s4S or s5S or s6S
 longFire  = s6L or s2L or s5L or s4L or s1Lx or s3Lx
 shortFire = s6S or s2S or s5S or s4S or s1Sx or s3Sx
+// No trades while CHOP (only real exhaustion reversals may still fire)
+longFire  := longFire and (not noChop or not chop or (s2L and exhL))
+shortFire := shortFire and (not noChop or not chop or (s2S and exhH))
 lName  = s6L ? "S6 TLP PATIENCE" : s2L ? "S2 SWEEP REVERSAL" : s5L ? "S5 TREND PULLBACK" : s4L ? "S4 OPENING DRIVE" : s1Lx ? "S1 ORB 30m" : "S3 VWAP RECLAIM"
 sName  = s6S ? "S6 TLP PATIENCE" : s2S ? "S2 SWEEP REVERSAL" : s5S ? "S5 TREND PULLBACK" : s4S ? "S4 OPENING DRIVE" : s1Sx ? "S1 ORB 30m" : "S3 VWAP LOSS"
 lStop  = s6L ? s6LStop : s2L ? s2LStop : s5L ? s5LStop : s4L ? s4LStop : s1Lx ? s1LStop : s3LStop
