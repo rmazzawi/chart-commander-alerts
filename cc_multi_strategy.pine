@@ -29,6 +29,7 @@ needVw  = input.bool(true, "Entry must be on the right side of VWAP (calls above
 use30   = input.bool(true, "30m trend must not be against the trade", group = gR)
 entWin  = input.session("0950-1530", "Entry window (ET) - skips opening chaos", group = gR)
 stretch = input.float(2.5, "Reversal: stretch from VWAP that counts as exhaustion (x ATR)", step = 0.25, group = gR)
+s1In    = input.bool(true, "S1: allow the pullback back INSIDE the 30m range (killed only below range middle)", group = gR)
 s5      = input.bool(true, "S5 - Trend pullback (dip into 34/50 or 72/89 cloud in a 10m trend, then 9/20 reclaim)", group = gR)
 s4      = input.bool(true, "S4 - Opening drive (PM high/low break + 9 EMA retest, 9:35-10:30)", group = gR)
 exitT2  = input.bool(false, "Exit everything at Target 2 (off = let runner trail)", group = gR)
@@ -228,8 +229,8 @@ if orbUpT
     orbUpDone := true
 if orbDnT
     orbDnDone := true
-[s1L, s1LStop, s1LSt] = f_retest(orbUpT, 1, e20, orH)
-[s1S, s1SStop, s1SSt] = f_retest(orbDnT, -1, e20, orL)
+[s1L, s1LStop, s1LSt] = f_retest(orbUpT, 1, e20, s1In ? (orH + orL) / 2 : orH)
+[s1S, s1SStop, s1SSt] = f_retest(orbDnT, -1, e20, s1In ? (orH + orL) / 2 : orL)
 
 // ---------------- S2: liquidity sweep reversal ----------------
 swBullLvl = (inRTH and low <= nz(lod, low) and vwap - low >= stretch * atr) or (not na(pml) and low < pml and close > pml) or (not na(pdl) and low < pdl and close > pdl) or (orReady and low < orL and close > orL) or (not na(eqL) and low < eqL and close > eqL)
