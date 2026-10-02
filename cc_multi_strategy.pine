@@ -23,7 +23,9 @@ minR    = input.float(0.5, "Min distance to target (x risk)", step = 0.1, group 
 t1Cap   = input.float(1.5, "Target 1 max (x risk)", step = 0.25, group = gR)
 t2Cap   = input.float(3.0, "Target 2 max (x risk)", step = 0.25, group = gR)
 trailTf = input.timeframe("5", "Trail stop on candles of", group = gR)
-maxRisk = input.float(1.5, "Skip trade if stop is wider than x ATR (options-friendly)", step = 0.1, group = gR)
+maxRisk = input.float(1.5, "Max stop distance x ATR (options-friendly)", step = 0.1, group = gR)
+capWide = input.bool(true, "If the stop is wider: tighten it to the max (on) / skip the trade (off)", group = gR)
+aggrRev = input.bool(true, "S2 aggressive: enter V-reversals that never retest (break of reclaim candle high/low)", group = gR)
 use5m   = input.bool(true, "Require 5m confirmation (5m close + 9/20 EMA aligned)", group = gR)
 needVw  = input.bool(true, "Entry must be on the right side of VWAP (calls above, puts below)", group = gR)
 use30   = input.bool(true, "30m trend must not be against the trade", group = gR)
@@ -261,8 +263,21 @@ climaxH = climaxL
 // volume: normal/rising OR there was a volume climax at the low
 reclaimUp = s2 and tfOK and not na(swLBar) and bar_index - swLBar <= 30 and close > e9 and close[1] <= e9[1] and close > open and (rvol >= revVol or rv5 >= 1.0 or climaxL)
 reclaimDn = s2 and tfOK and not na(swHBar) and bar_index - swHBar <= 30 and close < e9 and close[1] >= e9[1] and close < open and (rvol >= revVol or rv5 >= 1.0 or climaxH)
-[s2L, s2LStop, s2LSt] = f_retest(reclaimUp, 1, e9 - atr * 0.25, swLow, 2.0)
-[s2S, s2SStop, s2SSt] = f_retest(reclaimDn, -1, e9 + atr * 0.25, swHigh, 2.0)
+[s2Lr, s2LStopR, s2LSt] = f_retest(reclaimUp, 1, e9 - atr * 0.25, swLow, 2.0)
+[s2Sr, s2SStopR, s2SSt] = f_retest(reclaimDn, -1, e9 + atr * 0.25, swHigh, 2.0)
+// Aggressive V entry: 1-3 bars after the reclaim, a candle closes beyond the reclaim candle on rising volume
+rcUpHi = ta.valuewhen(reclaimUp, high, 0)
+rcUpLo = ta.valuewhen(reclaimUp, low, 0)
+rcDnLo = ta.valuewhen(reclaimDn, low, 0)
+rcDnHi = ta.valuewhen(reclaimDn, high, 0)
+bsRcUp = ta.barssince(reclaimUp)
+bsRcDn = ta.barssince(reclaimDn)
+s2LA = aggrRev and bsRcUp >= 1 and bsRcUp <= 3 and close > rcUpHi and close > e9 and close > open and volume > volume[1]
+s2SA = aggrRev and bsRcDn >= 1 and bsRcDn <= 3 and close < rcDnLo and close < e9 and close < open and volume > volume[1]
+s2LStop = s2Lr ? s2LStopR : rcUpLo
+s2SStop = s2Sr ? s2SStopR : rcDnHi
+s2L = s2Lr or s2LA
+s2S = s2Sr or s2SA
 
 // ---------------- S5: trend pullback ----------------
 // 10m trend up -> price dips into the 34/50 or 72/89 cloud (or below VWAP) -> reclaims 9 & 20 EMA -> retest -> confirm
@@ -409,7 +424,7 @@ if pos == 0 and (not exited or flipped) and canEntAll and tfOK and barstate.isco
     isLg = longFire and not shortFire
     rk   = isLg ? close - lStop : sStop - close
     ok5  = isLg ? (revL ? (not use5m or m5C > m5E9) : m5Bull) : (revS ? (not use5m or m5C < m5E9) : m5Bear)
-    blockMsg := longFire and shortFire ? "both sides" : rk <= 0 ? "stop on wrong side" : rk > atr * maxRisk ? "stop too wide " + str.tostring(rk / atr, "#.#") + "xATR" : not ok5 ? "5m not confirming" : ""
+    blockMsg := longFire and shortFire ? "both sides" : rk <= 0 ? "stop on wrong side" : rk > atr * maxRisk and not capWide ? "stop too wide " + str.tostring(rk / atr, "#.#") + "xATR" : not ok5 ? "5m not confirming" : ""
 else if pos != 0 and (longFire or shortFire) and barstate.isconfirmed
     blockMsg := "already in a trade"
 else if pos == 0 and (longFire or shortFire) and not canEntAll and barstate.isconfirmed
@@ -418,11 +433,12 @@ else if pos == 0 and barstate.isconfirmed and ((s1L and not s1Lx) or (s3L and no
     blockMsg := "S1/S3 trend filter (VWAP side / 30m / 9:50 window)"
 if pos == 0 and (not exited or flipped) and canEntAll and tfOK and barstate.isconfirmed
     if longFire and not shortFire
-        risk = close - lStop
-        if risk > 0 and risk <= atr * maxRisk and (revL ? (not use5m or m5C > m5E9) : m5Bull)
+        lStopX = capWide and close - lStop > atr * maxRisk ? close - atr * maxRisk : lStop
+        risk = close - lStopX
+        if risk > 0 and risk <= atr * maxRisk + syminfo.mintick and (revL ? (not use5m or m5C > m5E9) : m5Bull)
             pos   := 1
             entry := close
-            stop  := lStop
+            stop  := lStopX
             strat := lName
             a = f_next(levels, close, 1, risk * minR)
             t1 := na(a) ? close + risk : math.min(a, close + risk * t1Cap)
@@ -440,11 +456,12 @@ if pos == 0 and (not exited or flipped) and canEntAll and tfOK and barstate.isco
             entryT   := time
             entryMsg := "BUY CALLS"
     else if shortFire and not longFire
-        risk = sStop - close
-        if risk > 0 and risk <= atr * maxRisk and (revS ? (not use5m or m5C < m5E9) : m5Bear)
+        sStopX = capWide and sStop - close > atr * maxRisk ? close + atr * maxRisk : sStop
+        risk = sStopX - close
+        if risk > 0 and risk <= atr * maxRisk + syminfo.mintick and (revS ? (not use5m or m5C < m5E9) : m5Bear)
             pos   := -1
             entry := close
-            stop  := sStop
+            stop  := sStopX
             strat := sName
             a = f_next(levels, close, -1, risk * minR)
             t1 := na(a) ? close - risk : math.max(a, close - risk * t1Cap)
