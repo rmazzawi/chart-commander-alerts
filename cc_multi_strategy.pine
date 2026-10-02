@@ -52,6 +52,7 @@ hookKey = input.string("change-me", "Webhook key (must match n8n)", group = gA)
 gD       = "Display"
 showPD   = input.bool(true, "Show levels (PM, PD, OR, EQ)", group = gD)
 showDbg  = input.bool(false, "Show debug markers (SW sweep, RC reclaim, R retest, BLOCKED reason)", group = gD)
+showLbl  = input.bool(false, "Show text labels on chart (CALLS/PUTS, T1/T2, EXIT) - off = box only", group = gD)
 showWatch = input.bool(false, "Show POSSIBLE (heads-up) labels on chart (alerts are always sent)", group = gD)
 lblSize  = input.string("normal", "Text size for labels & boxes", options = ["small", "normal", "large"], group = gD)
 showSlow = input.bool(true, "Show slow lines (77 EMA, 200/400 SMA, 72/89 cloud)", group = gD)
@@ -585,24 +586,22 @@ if entryMsg != ""
     rr   = math.abs(t2 - entry) / math.abs(entry - stop)
     rr1  = math.abs(t1 - entry) / math.abs(entry - stop)
     txtW = "T2 " + str.tostring(t2, format.mintick) + "   R:R 1:" + str.tostring(rr, "#.#") + "  (T1 1:" + str.tostring(rr1, "#.#") + ")"
-    bxWin  := box.new(bar_index, isL ? t2 : entry, bar_index + 10, isL ? entry : t2, border_color = color.new(color.green, 30), bgcolor = color.new(color.green, 80), text = txtW, text_color = color.white, text_size = sz, text_halign = text.align_left, text_valign = isL ? text.align_top : text.align_bottom)
-    bxRisk := box.new(bar_index, isL ? entry : stop, bar_index + 10, isL ? stop : entry, border_color = color.new(color.red, 30), bgcolor = color.new(color.red, 80), text = "Stop " + str.tostring(stop, format.mintick), text_color = color.white, text_size = sz, text_halign = text.align_left, text_valign = isL ? text.align_bottom : text.align_top)
+    bxWin  := box.new(bar_index, isL ? t2 : entry, bar_index + 10, isL ? entry : t2, border_color = color.new(color.green, 30), bgcolor = color.new(color.green, 80), text = showLbl ? txtW : "", text_color = color.white, text_size = sz, text_halign = text.align_left, text_valign = isL ? text.align_top : text.align_bottom)
+    bxRisk := box.new(bar_index, isL ? entry : stop, bar_index + 10, isL ? stop : entry, border_color = color.new(color.red, 30), bgcolor = color.new(color.red, 80), text = showLbl ? "Stop " + str.tostring(stop, format.mintick) : "", text_color = color.white, text_size = sz, text_halign = text.align_left, text_valign = isL ? text.align_bottom : text.align_top)
     lnT1   := line.new(bar_index, t1, bar_index + 10, t1, color = color.new(color.lime, 0), style = line.style_dashed, width = 1)
 else if (inPos or exited) and not na(bxWin)
     rightX = exited ? bar_index : math.max(box.get_right(bxWin), bar_index + 1)
     box.set_right(bxWin, rightX)
     box.set_right(bxRisk, rightX)
     line.set_x2(lnT1, rightX)
-plot(inPos ? stop : na, "Stop", color.red, 2, plot.style_linebr)
-plot(inPos ? t1 : na, "Target 1", color.lime, 1, plot.style_linebr)
-plot(inPos ? t2 : na, "Target 2", color.lime, 2, plot.style_linebr)
+plot(inPos ? stop : na, "Stop (trailing)", color.new(color.red, 30), 1, plot.style_linebr)
 
-if entryMsg != ""
+if entryMsg != "" and showLbl
     isL = pos == 1
     label.new(bar_index, isL ? low : high, (isL ? "CALLS\n" : "PUTS\n") + strat + "\nvol " + str.tostring(rvol, "#.#") + "x", style = isL ? label.style_label_up : label.style_label_down, color = isL ? color.green : color.red, textcolor = color.white, size = sz)
-if t1Msg != ""
+if t1Msg != "" and showLbl
     label.new(bar_index, pos == 1 ? high : low, t1Msg != "" and str.contains(t1Msg, "TARGET 2") ? "T2 HIT\nsell more" : "T1 HIT\nsell half", style = pos == 1 ? label.style_label_down : label.style_label_up, color = color.orange, textcolor = color.black, size = sz)
-if exited
+if exited and showLbl
     label.new(bar_index, close, "EXIT\n" + exitMsg, style = label.style_label_left, color = color.gray, textcolor = color.white, size = sz)
 
 // Retest markers: R = retest accepted (waiting for confirmation candle)
