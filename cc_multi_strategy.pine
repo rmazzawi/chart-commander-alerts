@@ -52,7 +52,9 @@ hookKey = input.string("change-me", "Webhook key (must match n8n)", group = gA)
 gC       = "Cloud rule"
 cloudRule = input.bool(true, "Calls only if the candle closes ABOVE the 34/50 cloud, puts only BELOW it", group = gC)
 cloudFar  = input.float(1.5, "...except reversals far from the cloud (more than x ATR away)", step = 0.25, group = gC)
-noChop    = input.bool(true, "No trades at all when CHOP (except real exhaustion reversals)", group = gC)
+noChop    = input.bool(true, "No trades when CHOP after the time below (except real exhaustion reversals)", group = gC)
+chopFrom  = input.session("1130-1600", "Chop block active during (ET)", group = gC)
+secondT   = input.bool(true, "First hour: S2 reversal only on a 2nd test (lower high for puts / higher low for calls)", group = gC)
 gD       = "Display"
 showPD   = input.bool(true, "Show levels (PM, PD, OR, EQ)", group = gD)
 showDbg  = input.bool(false, "Show debug markers (SW sweep, RC reclaim, R retest, BLOCKED reason)", group = gD)
@@ -486,8 +488,15 @@ revS = s2S or s4S or s5S or s6S
 longFire  = s6L or s2L or s5L or s4L or s1Lx or s3Lx
 shortFire = s6S or s2S or s5S or s4S or s1Sx or s3Sx
 // No trades while CHOP (only real exhaustion reversals may still fire)
-longFire  := longFire and (not noChop or not chop or (s2L and exhL))
-shortFire := shortFire and (not noChop or not chop or (s2S and exhH))
+chopLate = not na(time(timeframe.period, chopFrom, tz))
+firstHr  = not na(time(timeframe.period, "0930-1030", tz))
+// 2nd test: the swept low must be HIGHER than the low of day (it is a retest, not the first spike)
+s2Lok = not secondT or not firstHr or (not na(swLow) and swLow > nz(lod, swLow) + syminfo.mintick)
+s2Sok = not secondT or not firstHr or (not na(swHigh) and swHigh < nz(hod, swHigh) - syminfo.mintick)
+longFire  := longFire and not (s2L and not (s6L or s5L or s4L or s1Lx or s3Lx) and not s2Lok)
+shortFire := shortFire and not (s2S and not (s6S or s5S or s4S or s1Sx or s3Sx) and not s2Sok)
+longFire  := longFire and (not noChop or not chop or not chopLate or (s2L and exhL))
+shortFire := shortFire and (not noChop or not chop or not chopLate or (s2S and exhH))
 lName  = s6L ? "S6 TLP PATIENCE" : s2L ? "S2 SWEEP REVERSAL" : s5L ? "S5 TREND PULLBACK" : s4L ? "S4 OPENING DRIVE" : s1Lx ? "S1 ORB 30m" : "S3 VWAP RECLAIM"
 sName  = s6S ? "S6 TLP PATIENCE" : s2S ? "S2 SWEEP REVERSAL" : s5S ? "S5 TREND PULLBACK" : s4S ? "S4 OPENING DRIVE" : s1Sx ? "S1 ORB 30m" : "S3 VWAP LOSS"
 lStop  = s6L ? s6LStop : s2L ? s2LStop : s5L ? s5LStop : s4L ? s4LStop : s1Lx ? s1LStop : s3LStop
