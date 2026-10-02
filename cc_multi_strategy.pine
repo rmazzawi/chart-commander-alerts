@@ -247,16 +247,22 @@ if orbDnT
 [s1S, s1SStop, s1SSt] = f_retest(orbDnT, -1, e20, s1In ? (orH + orL) / 2 : orL, 1.0)
 
 // ---------------- S2: liquidity sweep reversal ----------------
-swBullLvl = (inRTH and low <= nz(lod, low) and vwap - low >= stretch * atr) or (not na(pml) and low < pml and close > pml) or (not na(pdl) and low < pdl and close > pdl) or (orReady and low < orL and close > orL) or (not na(eqL) and low < eqL and close > eqL)
-swBearLvl = (inRTH and high >= nz(hod, high) and high - vwap >= stretch * atr) or (not na(pmh) and high > pmh and close < pmh) or (not na(pdh) and high > pdh and close < pdh) or (orReady and high > orH and close < orH) or (not na(eqH) and high > eqH and close < eqH)
+strL = inRTH and low <= nz(lod, low) and vwap - low >= stretch * atr
+strH = inRTH and high >= nz(hod, high) and high - vwap >= stretch * atr
+swBullLvl = strL or (not na(pml) and low < pml and close > pml) or (not na(pdl) and low < pdl and close > pdl) or (orReady and low < orL and close > orL) or (not na(eqL) and low < eqL and close > eqL)
+swBearLvl = strH or (not na(pmh) and high > pmh and close < pmh) or (not na(pdh) and high > pdh and close < pdh) or (orReady and high > orH and close < orH) or (not na(eqH) and high > eqH and close < eqH)
 var float swLow  = na
+var bool  swLStr = false
+var bool  swHStr = false
 var float swHigh = na
 var int   swLBar = na
 var int   swHBar = na
 if inRTH and swBullLvl
+    swLStr := strL
     swLow  := low
     swLBar := bar_index
 if inRTH and swBearLvl
+    swHStr := strH
     swHigh := high
     swHBar := bar_index
 // Seller/buyer exhaustion: heavy volume somewhere in the sweep zone (last 15 bars)
@@ -264,8 +270,8 @@ climaxL = ta.highest(rvol, 15) >= volMult and not na(swLBar) and bar_index - swL
 climaxH = climaxL
 // Reclaim = first close back above the 9 EMA after the low (the 20 lags too far after a steep drop), green candle,
 // volume: normal/rising OR there was a volume climax at the low
-reclaimUp = s2 and tfOK and not na(swLBar) and bar_index - swLBar <= 30 and close > e9 and close[1] <= e9[1] and close > open and (rvol >= revVol or rv5 >= 1.0 or climaxL)
-reclaimDn = s2 and tfOK and not na(swHBar) and bar_index - swHBar <= 30 and close < e9 and close[1] >= e9[1] and close < open and (rvol >= revVol or rv5 >= 1.0 or climaxH)
+reclaimUp = s2 and tfOK and (swLStr or (not chop and ok30L)) and not na(swLBar) and bar_index - swLBar <= 30 and close > e9 and close[1] <= e9[1] and close > open and (rvol >= revVol or rv5 >= 1.0 or climaxL)
+reclaimDn = s2 and tfOK and (swHStr or (not chop and ok30S)) and not na(swHBar) and bar_index - swHBar <= 30 and close < e9 and close[1] >= e9[1] and close < open and (rvol >= revVol or rv5 >= 1.0 or climaxH)
 [s2Lr, s2LStopR, s2LSt] = f_retest(reclaimUp, 1, e9 - atr * 0.25, swLow, 2.0)
 [s2Sr, s2SStopR, s2SSt] = f_retest(reclaimDn, -1, e9 + atr * 0.25, swHigh, 2.0)
 // Aggressive V entry: 1-3 bars after the reclaim, a candle closes beyond the reclaim candle on rising volume
