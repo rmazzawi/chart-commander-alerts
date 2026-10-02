@@ -51,6 +51,7 @@ hookKey = input.string("change-me", "Webhook key (must match n8n)", group = gA)
 
 gC       = "Cloud rule"
 cloudRule = input.bool(true, "Calls only if the candle closes ABOVE the 34/50 cloud, puts only BELOW it", group = gC)
+cloudFar  = input.float(1.5, "...except reversals far from the cloud (more than x ATR away)", step = 0.25, group = gC)
 gD       = "Display"
 showPD   = input.bool(true, "Show levels (PM, PD, OR, EQ)", group = gD)
 showDbg  = input.bool(false, "Show debug markers (SW sweep, RC reclaim, R retest, BLOCKED reason)", group = gD)
@@ -511,7 +512,7 @@ if pos == 0 and (not exited or flipped) and canEntAll and tfOK and barstate.isco
     if longFire and not shortFire
         lStopX = capWide and close - lStop > atr * maxRisk ? close - atr * maxRisk : lStop
         risk = close - lStopX
-        if risk > 0 and (not cloudRule or close > math.max(e34, e50)) and risk <= atr * maxRisk + syminfo.mintick and (s6L or (revL ? (not use5m or m5C > m5E9) : m5Bull))
+        if risk > 0 and (not cloudRule or close > math.max(e34, e50) or math.min(e34, e50) - close > atr * cloudFar) and risk <= atr * maxRisk + syminfo.mintick and (s6L or (revL ? (not use5m or m5C > m5E9) : m5Bull))
             pos   := 1
             entry := close
             stop  := lStopX
@@ -534,7 +535,7 @@ if pos == 0 and (not exited or flipped) and canEntAll and tfOK and barstate.isco
     else if shortFire and not longFire
         sStopX = capWide and sStop - close > atr * maxRisk ? close + atr * maxRisk : sStop
         risk = sStopX - close
-        if risk > 0 and (not cloudRule or close < math.min(e34, e50)) and risk <= atr * maxRisk + syminfo.mintick and (s6S or (revS ? (not use5m or m5C < m5E9) : m5Bear))
+        if risk > 0 and (not cloudRule or close < math.min(e34, e50) or close - math.max(e34, e50) > atr * cloudFar) and risk <= atr * maxRisk + syminfo.mintick and (s6S or (revS ? (not use5m or m5C < m5E9) : m5Bear))
             pos   := -1
             entry := close
             stop  := sStopX
