@@ -36,6 +36,7 @@ s1In    = input.bool(true, "S1: allow the pullback back INSIDE the 30m range (ki
 s6      = input.bool(true, "S6 - TLP: Trend + Level + Patience candle (2m 9:30-10, 5m 10-11, 10m after 11)", group = gR)
 fibMax  = input.float(0.382, "S6: patience candle may retrace at most this Fib of the last leg", step = 0.01, group = gR)
 smaNear = input.float(1.0, "S6: skip if SMA 200/400 is within x ATR in the trade direction (bounce risk)", step = 0.1, group = gR)
+roomR   = input.float(0.8, "Skip if nearest support/resistance is closer than x risk (no room)", step = 0.1, group = gR)
 needPC  = input.bool(true, "Every entry needs a contained patience candle (inside bar + lower volume) in the last 2 candles", group = gR)
 bosChop = input.bool(true, "In CHOP: other setups allowed only after a break of the previous swing high/low", group = gR)
 chopOnly6 = input.bool(true, "In CHOP: only S6 (patience candle rejection at VWAP/level) may trade", group = gR)
@@ -367,8 +368,8 @@ f_tlp() =>
     supL = math.max(v < close ? v : -1e10, a34 < close ? a34 : -1e10, a50 < close ? a50 : -1e10, a72 < close ? a72 : -1e10, a89 < close ? a89 : -1e10)
     smaTight = (not na(m200) and m200 < close and close - m200 < at * smaNear * 0.5) or (not na(m400) and m400 < close and close - m400 < at * smaNear * 0.5)
     smaTightR = (not na(m200) and m200 > close and m200 - close < at * smaNear * 0.5) or (not na(m400) and m400 > close and m400 - close < at * smaNear * 0.5)
-    rejP  = close < v and resL < 1e9 and high >= resL - nearV and rng > 0 and (close < open or upW >= 0.4 * rng) and lowV and not smaTight
-    rejC  = close > v and supL > -1e9 and low <= supL + nearV and rng > 0 and (close > open or dnW >= 0.4 * rng) and lowV and not smaTightR
+    rejP  = a9 < a20 and resL < 1e9 and high >= resL - nearV and rng > 0 and (close < open or upW >= 0.4 * rng) and lowV and not smaTight
+    rejC  = a9 > a20 and supL > -1e9 and low <= supL + nearV and rng > 0 and (close > open or dnW >= 0.4 * rng) and lowV and not smaTightR
     pPut  = (bearT and lvl and lowV and fibP and not supNear) or rejP
     pCall = (bullT and lvl and lowV and fibC and not resNear) or rejC
     [pPut[1], pCall[1], high[1], low[1], time[1], rejP[1], rejC[1]]
@@ -521,6 +522,8 @@ sName  = s6S ? "S6 TLP PATIENCE" : s2S ? "S2 SWEEP REVERSAL" : s5S ? "S5 TREND P
 lStop  = s6L ? s6LStop : s2L ? s2LStop : s5L ? s5LStop : s4L ? s4LStop : s1Lx ? s1LStop : s3LStop
 sStop  = s6S ? s6SStop : s2S ? s2SStop : s5S ? s5SStop : s4S ? s4SStop : s1Sx ? s1SStop : s3SStop
 levels = array.from(pmh, pml, pdh, pdl, orH, orL, eqH, eqL, hod, lod, vwap)
+// "Room" check: no trade straight into support (puts) / resistance (calls) - includes SMA 200/400 and the 72/89 cloud
+roomLv = array.from(pmh, pml, pdh, pdl, orH, orL, hod[1], lod[1], vwap, s200, s400, e72, e89)
 
 // Opposite signal while in a trade -> close it and flip (e.g. PUT runner still open when the bottom reversal fires)
 flipped = false
@@ -545,9 +548,10 @@ else if pos == 0 and barstate.isconfirmed and ((s1L and not s1Lx) or (s3L and no
     blockMsg := "S1/S3 trend filter (VWAP side / 30m / 9:50 window)"
 if pos == 0 and (not exited or flipped) and canEntAll and tfOK and barstate.isconfirmed
     if longFire and not shortFire
+        nRoomL = f_next(roomLv, close, 1, syminfo.mintick)
         lStopX = capWide and close - lStop > atr * maxRisk ? close - atr * maxRisk : lStop
         risk = close - lStopX
-        if risk > 0 and risk <= atr * maxRisk + syminfo.mintick and (s6L or (revL ? (not use5m or m5C > m5E9) : m5Bull))
+        if risk > 0 and (na(nRoomL) or nRoomL - close >= risk * roomR) and risk <= atr * maxRisk + syminfo.mintick and (s6L or (revL ? (not use5m or m5C > m5E9) : m5Bull))
             pos   := 1
             entry := close
             stop  := lStopX
@@ -568,9 +572,10 @@ if pos == 0 and (not exited or flipped) and canEntAll and tfOK and barstate.isco
             entryT   := time
             entryMsg := "BUY CALLS"
     else if shortFire and not longFire
+        nRoomS = f_next(roomLv, close, -1, syminfo.mintick)
         sStopX = capWide and sStop - close > atr * maxRisk ? close + atr * maxRisk : sStop
         risk = sStopX - close
-        if risk > 0 and risk <= atr * maxRisk + syminfo.mintick and (s6S or (revS ? (not use5m or m5C < m5E9) : m5Bear))
+        if risk > 0 and (na(nRoomS) or close - nRoomS >= risk * roomR) and risk <= atr * maxRisk + syminfo.mintick and (s6S or (revS ? (not use5m or m5C < m5E9) : m5Bear))
             pos   := -1
             entry := close
             stop  := sStopX
