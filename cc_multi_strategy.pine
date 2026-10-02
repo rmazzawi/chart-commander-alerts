@@ -258,11 +258,11 @@ var float swHigh = na
 var int   swLBar = na
 var int   swHBar = na
 if inRTH and swBullLvl
-    swLStr := strL
+    swLStr := strL or (swLStr and not na(swLBar) and bar_index - swLBar <= 30)
     swLow  := low
     swLBar := bar_index
 if inRTH and swBearLvl
-    swHStr := strH
+    swHStr := strH or (swHStr and not na(swHBar) and bar_index - swHBar <= 30)
     swHigh := high
     swHBar := bar_index
 // Seller/buyer exhaustion: heavy volume somewhere in the sweep zone (last 15 bars)
