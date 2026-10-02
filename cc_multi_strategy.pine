@@ -523,7 +523,7 @@ lStop  = s6L ? s6LStop : s2L ? s2LStop : s5L ? s5LStop : s4L ? s4LStop : s1Lx ? 
 sStop  = s6S ? s6SStop : s2S ? s2SStop : s5S ? s5SStop : s4S ? s4SStop : s1Sx ? s1SStop : s3SStop
 levels = array.from(pmh, pml, pdh, pdl, orH, orL, eqH, eqL, hod, lod, vwap)
 // "Room" check: no trade straight into support (puts) / resistance (calls) - includes SMA 200/400 and the 72/89 cloud
-roomLv = array.from(pmh, pml, pdh, pdl, orH, orL, hod[1], lod[1], vwap, s200, s400, e72, e89)
+roomLv = array.from(pmh, pml, pdh, pdl, orH, orL, vwap, s200, s400, e72, e89)   // HOD/LOD left out: continuation to new highs/lows must stay allowed
 
 // Opposite signal while in a trade -> close it and flip (e.g. PUT runner still open when the bottom reversal fires)
 flipped = false
