@@ -36,10 +36,6 @@ s1In    = input.bool(true, "S1: allow the pullback back INSIDE the 30m range (ki
 s6      = input.bool(true, "S6 - TLP: Trend + Level + Patience candle (2m 9:30-10, 5m 10-11, 10m after 11)", group = gR)
 fibMax  = input.float(0.382, "S6: patience candle may retrace at most this Fib of the last leg", step = 0.01, group = gR)
 smaNear = input.float(1.0, "S6: skip if SMA 200/400 is within x ATR in the trade direction (bounce risk)", step = 0.1, group = gR)
-roomR   = input.float(0.8, "Skip if nearest support/resistance is closer than x risk (no room)", step = 0.1, group = gR)
-needPC  = input.bool(false, "Every entry needs a contained patience candle (inside bar + lower volume) in the last 2 candles", group = gR)
-bosChop = input.bool(true, "In CHOP: other setups allowed only after a break of the previous swing high/low", group = gR)
-chopOnly6 = input.bool(true, "In CHOP: only S6 (patience candle rejection at VWAP/level) may trade", group = gR)
 s5      = input.bool(true, "S5 - Trend pullback (dip into 34/50 or 72/89 cloud in a 10m trend, then 9/20 reclaim)", group = gR)
 s4      = input.bool(true, "S4 - Opening drive (PM high/low break + 9 EMA retest, 9:35-10:30)", group = gR)
 exitT2  = input.bool(false, "Exit everything at Target 2 (off = let runner trail)", group = gR)
@@ -53,11 +49,12 @@ only2m  = input.bool(true, "Signals only on 2-minute chart", group = gF)
 gA      = "Alerts / webhook"
 hookKey = input.string("change-me", "Webhook key (must match n8n)", group = gA)
 
+gC       = "Cloud rule"
+cloudRule = input.bool(true, "Calls only if the candle closes ABOVE the 34/50 cloud, puts only BELOW it", group = gC)
 gD       = "Display"
 showPD   = input.bool(true, "Show levels (PM, PD, OR, EQ)", group = gD)
 showDbg  = input.bool(false, "Show debug markers (SW sweep, RC reclaim, R retest, BLOCKED reason)", group = gD)
-showLbl  = input.bool(false, "Show text labels on chart (CALLS/PUTS, T1/T2, EXIT) - off = box only", group = gD)
-showWatch = input.bool(false, "Show POSSIBLE (heads-up) labels on chart (alerts are always sent)", group = gD)
+showLbl  = input.bool(false, "Show text labels on chart (off = boxes only, details go to alerts/n8n)", group = gD)
 lblSize  = input.string("normal", "Text size for labels & boxes", options = ["small", "normal", "large"], group = gD)
 showSlow = input.bool(true, "Show slow lines (77 EMA, 200/400 SMA, 72/89 cloud)", group = gD)
 
@@ -261,21 +258,15 @@ swBearLvl = strH or (not na(pmh) and high > pmh and close < pmh) or (not na(pdh)
 var float swLow  = na
 var bool  swLStr = false
 var bool  swHStr = false
-var int   strLBar = na
-var int   strHBar = na
-if strL
-    strLBar := bar_index
-if strH
-    strHBar := bar_index
 var float swHigh = na
 var int   swLBar = na
 var int   swHBar = na
 if inRTH and swBullLvl
-    swLStr := not na(strLBar) and bar_index - strLBar <= 30
+    swLStr := strL or (swLStr and not na(swLBar) and bar_index - swLBar <= 30)
     swLow  := low
     swLBar := bar_index
 if inRTH and swBearLvl
-    swHStr := not na(strHBar) and bar_index - strHBar <= 30
+    swHStr := strH or (swHStr and not na(swHBar) and bar_index - swHBar <= 30)
     swHigh := high
     swHBar := bar_index
 // Seller/buyer exhaustion: heavy volume somewhere in the sweep zone (last 15 bars)
@@ -283,8 +274,8 @@ climaxL = ta.highest(rvol, 15) >= volMult and not na(swLBar) and bar_index - swL
 climaxH = climaxL
 // Reclaim = first close back above the 9 EMA after the low (the 20 lags too far after a steep drop), green candle,
 // volume: normal/rising OR there was a volume climax at the low
-reclaimUp = s2 and tfOK and ((swLStr and bar_index - strLBar <= 30) or (not chop and ok30L)) and not na(swLBar) and bar_index - swLBar <= 30 and close > e9 and close[1] <= e9[1] and close > open and (rvol >= revVol or rv5 >= 1.0 or climaxL)
-reclaimDn = s2 and tfOK and ((swHStr and bar_index - strHBar <= 30) or (not chop and ok30S)) and not na(swHBar) and bar_index - swHBar <= 30 and close < e9 and close[1] >= e9[1] and close < open and (rvol >= revVol or rv5 >= 1.0 or climaxH)
+reclaimUp = s2 and tfOK and (swLStr or (not chop and ok30L)) and not na(swLBar) and bar_index - swLBar <= 30 and close > e9 and close[1] <= e9[1] and close > open and (rvol >= revVol or rv5 >= 1.0 or climaxL)
+reclaimDn = s2 and tfOK and (swHStr or (not chop and ok30S)) and not na(swHBar) and bar_index - swHBar <= 30 and close < e9 and close[1] >= e9[1] and close < open and (rvol >= revVol or rv5 >= 1.0 or climaxH)
 [s2Lr, s2LStopR, s2LSt] = f_retest(reclaimUp, 1, e9 - atr * 0.25, swLow, 2.0)
 [s2Sr, s2SStopR, s2SSt] = f_retest(reclaimDn, -1, e9 + atr * 0.25, swHigh, 2.0)
 // Aggressive V entry: 1-3 bars after the reclaim, a candle closes beyond the reclaim candle on rising volume
@@ -349,44 +340,28 @@ f_tlp() =>
     ll   = ta.lowest(low, 20)
     leg  = hh - ll
     lvl  = f_touch(v, tl) or f_touch(a20, tl) or f_touch(a34, tl) or f_touch(a50, tl)
-    lowV = volume < volume[1] and high <= high[1] + at * 0.1 and low >= low[1] - at * 0.1   // contained + lighter volume
+    lowV = volume < volume[1]
     bearT = a9 < a20 and close < a9 and close < a20
     bullT = a9 > a20 and close > a9 and close > a20
     fibP  = leg > 0 and (high - ll) / leg <= fibMax
     fibC  = leg > 0 and (hh - low) / leg <= fibMax
     supNear = (not na(m200) and m200 < close and close - m200 < at * smaNear) or (not na(m400) and m400 < close and close - m400 < at * smaNear)
     resNear = (not na(m200) and m200 > close and m200 - close < at * smaNear) or (not na(m400) and m400 > close and m400 - close < at * smaNear)
-    rng   = high - low
-    upW   = high - math.max(open, close)
-    dnW   = math.min(open, close) - low
-    // Rejection patience candle (works in chop): wick INTO VWAP/20 EMA/cloud, closes back away, lighter volume
-    nearV = at * 0.5
-    a72  = ta.ema(close, 72)
-    a89  = ta.ema(close, 89)
-    // nearest resistance above / support below among VWAP and the EMA clouds
-    resL = math.min(v > close ? v : 1e10, a34 > close ? a34 : 1e10, a50 > close ? a50 : 1e10, a72 > close ? a72 : 1e10, a89 > close ? a89 : 1e10)
-    supL = math.max(v < close ? v : -1e10, a34 < close ? a34 : -1e10, a50 < close ? a50 : -1e10, a72 < close ? a72 : -1e10, a89 < close ? a89 : -1e10)
-    smaTight = (not na(m200) and m200 < close and close - m200 < at * smaNear * 0.5) or (not na(m400) and m400 < close and close - m400 < at * smaNear * 0.5)
-    smaTightR = (not na(m200) and m200 > close and m200 - close < at * smaNear * 0.5) or (not na(m400) and m400 > close and m400 - close < at * smaNear * 0.5)
-    rejP  = a9 < a20 and resL < 1e9 and high >= resL - nearV and rng > 0 and (close < open or upW >= 0.4 * rng) and lowV and not smaTight
-    rejC  = a9 > a20 and supL > -1e9 and low <= supL + nearV and rng > 0 and (close > open or dnW >= 0.4 * rng) and lowV and not smaTightR
-    pPut  = (bearT and lvl and lowV and fibP and not supNear) or rejP
-    pCall = (bullT and lvl and lowV and fibC and not resNear) or rejC
-    [pPut[1], pCall[1], high[1], low[1], time[1], rejP[1], rejC[1]]
+    pPut  = bearT and lvl and lowV and fibP and not supNear
+    pCall = bullT and lvl and lowV and fibC and not resNear
+    [pPut[1], pCall[1], high[1], low[1], time[1]]
 
-[p2P, p2C, p2H, p2L, p2T, p2RP, p2RC] = request.security(syminfo.tickerid, "2", f_tlp(), lookahead = barmerge.lookahead_on)
-[p5P, p5C, p5H, p5L, p5T, p5RP, p5RC] = request.security(syminfo.tickerid, "5", f_tlp(), lookahead = barmerge.lookahead_on)
-[p10P, p10C, p10H, p10L, p10T, p10RP, p10RC] = request.security(syminfo.tickerid, "10", f_tlp(), lookahead = barmerge.lookahead_on)
+[p2P, p2C, p2H, p2L, p2T]       = request.security(syminfo.tickerid, "2", f_tlp(), lookahead = barmerge.lookahead_on)
+[p5P, p5C, p5H, p5L, p5T]       = request.security(syminfo.tickerid, "5", f_tlp(), lookahead = barmerge.lookahead_on)
+[p10P, p10C, p10H, p10L, p10T]  = request.security(syminfo.tickerid, "10", f_tlp(), lookahead = barmerge.lookahead_on)
 in2  = not na(time(timeframe.period, "0930-1000", tz))
 in5  = not na(time(timeframe.period, "1000-1100", tz))
-// VWAP rejection patience candles are always read on the 2m chart (that's where you see them)
-sel2 = p2RP or p2RC
-pcP  = sel2 ? p2RP : in2 ? p2P : in5 ? p5P : p10P
-pcC  = sel2 ? p2RC : in2 ? p2C : in5 ? p5C : p10C
-pcH  = sel2 or in2 ? p2H : in5 ? p5H : p10H
-pcL  = sel2 or in2 ? p2L : in5 ? p5L : p10L
-pcT  = sel2 or in2 ? p2T : in5 ? p5T : p10T
-pcWin = sel2 ? 3 : in2 ? 2 : in5 ? 5 : 10        // 2m bars allowed for the break (one candle of that timeframe)
+pcP  = in2 ? p2P : in5 ? p5P : p10P
+pcC  = in2 ? p2C : in5 ? p5C : p10C
+pcH  = in2 ? p2H : in5 ? p5H : p10H
+pcL  = in2 ? p2L : in5 ? p5L : p10L
+pcT  = in2 ? p2T : in5 ? p5T : p10T
+pcWin = in2 ? 2 : in5 ? 5 : 10        // 2m bars allowed for the break (one candle of that timeframe)
 var int   tlpDir = 0
 var float tlpH   = na
 var float tlpL   = na
@@ -503,27 +478,13 @@ s1Sx = s1S and trendOkS
 s3Sx = s3S and trendOkS
 revL = s2L or s4L or s5L or s6L
 revS = s2S or s4S or s5S or s6S
-// Contained patience candle on the 2m chart (inside the previous candle, lower volume)
-cont2    = high <= high[1] + atr * 0.1 and low >= low[1] - atr * 0.1 and volume < volume[1]
-recentPC = cont2[1] or cont2[2]
-// Market structure: chop ends only when price breaks the previous swing high / low
-swingH = ta.valuewhen(not na(ph), ph, 0)
-swingL = ta.valuewhen(not na(pl), pl, 0)
-bosUp  = ta.barssince(ta.crossover(close, swingH)) <= 10
-bosDn  = ta.barssince(ta.crossunder(close, swingL)) <= 10
-chopL  = chopOnly6 and chop and not (bosChop and bosUp)
-chopS  = chopOnly6 and chop and not (bosChop and bosDn)
-longFire  = s6L or (s2L and swLStr and bar_index - strLBar <= 30) or (not chopL and (s2L or s5L or s4L or s1Lx or s3Lx))
-longFire  := longFire and (s6L or not needPC or recentPC or (tf10Bull and close > vwap))   // strong trend: no PC needed
-shortFire = s6S or (s2S and swHStr and bar_index - strHBar <= 30) or (not chopS and (s2S or s5S or s4S or s1Sx or s3Sx))
-shortFire := shortFire and (s6S or not needPC or recentPC or (tf10Bear and close < vwap))
+longFire  = s6L or s2L or s5L or s4L or s1Lx or s3Lx
+shortFire = s6S or s2S or s5S or s4S or s1Sx or s3Sx
 lName  = s6L ? "S6 TLP PATIENCE" : s2L ? "S2 SWEEP REVERSAL" : s5L ? "S5 TREND PULLBACK" : s4L ? "S4 OPENING DRIVE" : s1Lx ? "S1 ORB 30m" : "S3 VWAP RECLAIM"
 sName  = s6S ? "S6 TLP PATIENCE" : s2S ? "S2 SWEEP REVERSAL" : s5S ? "S5 TREND PULLBACK" : s4S ? "S4 OPENING DRIVE" : s1Sx ? "S1 ORB 30m" : "S3 VWAP LOSS"
 lStop  = s6L ? s6LStop : s2L ? s2LStop : s5L ? s5LStop : s4L ? s4LStop : s1Lx ? s1LStop : s3LStop
 sStop  = s6S ? s6SStop : s2S ? s2SStop : s5S ? s5SStop : s4S ? s4SStop : s1Sx ? s1SStop : s3SStop
 levels = array.from(pmh, pml, pdh, pdl, orH, orL, eqH, eqL, hod, lod, vwap)
-// "Room" check: no trade straight into support (puts) / resistance (calls) - includes SMA 200/400 and the 72/89 cloud
-roomLv = array.from(pmh, pml, pdh, pdl, orH, orL, vwap, s200, s400, e72, e89)   // HOD/LOD left out: continuation to new highs/lows must stay allowed
 
 // Opposite signal while in a trade -> close it and flip (e.g. PUT runner still open when the bottom reversal fires)
 flipped = false
@@ -548,10 +509,9 @@ else if pos == 0 and barstate.isconfirmed and ((s1L and not s1Lx) or (s3L and no
     blockMsg := "S1/S3 trend filter (VWAP side / 30m / 9:50 window)"
 if pos == 0 and (not exited or flipped) and canEntAll and tfOK and barstate.isconfirmed
     if longFire and not shortFire
-        nRoomL = f_next(roomLv, close, 1, syminfo.mintick)
         lStopX = capWide and close - lStop > atr * maxRisk ? close - atr * maxRisk : lStop
         risk = close - lStopX
-        if risk > 0 and (na(nRoomL) or nRoomL - close >= risk * roomR or (tf10Bull and close > vwap)) and risk <= atr * maxRisk + syminfo.mintick and (s6L or (revL ? (not use5m or m5C > m5E9) : m5Bull))
+        if risk > 0 and (not cloudRule or close > math.max(e34, e50)) and risk <= atr * maxRisk + syminfo.mintick and (s6L or (revL ? (not use5m or m5C > m5E9) : m5Bull))
             pos   := 1
             entry := close
             stop  := lStopX
@@ -572,10 +532,9 @@ if pos == 0 and (not exited or flipped) and canEntAll and tfOK and barstate.isco
             entryT   := time
             entryMsg := "BUY CALLS"
     else if shortFire and not longFire
-        nRoomS = f_next(roomLv, close, -1, syminfo.mintick)
         sStopX = capWide and sStop - close > atr * maxRisk ? close + atr * maxRisk : sStop
         risk = sStopX - close
-        if risk > 0 and (na(nRoomS) or close - nRoomS >= risk * roomR or (tf10Bear and close < vwap)) and risk <= atr * maxRisk + syminfo.mintick and (s6S or (revS ? (not use5m or m5C < m5E9) : m5Bear))
+        if risk > 0 and (not cloudRule or close < math.min(e34, e50)) and risk <= atr * maxRisk + syminfo.mintick and (s6S or (revS ? (not use5m or m5C < m5E9) : m5Bear))
             pos   := -1
             entry := close
             stop  := sStopX
@@ -617,7 +576,7 @@ sz = lblSize == "small" ? size.small : lblSize == "large" ? size.large : size.no
 var box  bxWin  = na
 var box  bxRisk = na
 var line lnT1   = na
-if watchMsg != "" and showWatch
+if watchMsg != "" and showLbl
     label.new(bar_index, str.contains(watchMsg, "CALLS") ? low : high, watchMsg + "\n" + watchWhy, style = str.contains(watchMsg, "CALLS") ? label.style_label_up : label.style_label_down, color = color.new(color.yellow, 10), textcolor = color.black, size = sz)
 if entryMsg != ""
     if flipped and not na(bxWin)
@@ -653,8 +612,6 @@ plotshape(showDbg and inRTH and swBullLvl, "Sweep low", shape.triangleup, locati
 plotshape(showDbg and inRTH and swBearLvl, "Sweep high", shape.triangledown, location.abovebar, color.new(color.fuchsia, 0), size = size.tiny, text = "SW")
 plotshape(showDbg and (reclaimUp or pbUpT or orbUpT or vwUpT or drUpT), "Trigger long", shape.diamond, location.belowbar, color.new(color.yellow, 0), size = size.tiny, text = "RC")
 plotshape(showDbg and (reclaimDn or pbDnT or orbDnT or vwDnT or drDnT), "Trigger short", shape.diamond, location.abovebar, color.new(color.yellow, 0), size = size.tiny, text = "RC")
-plotshape(showDbg and newPC and pcP, "Patience candle (put)", shape.square, location.abovebar, color.new(color.orange, 0), size = size.tiny, text = "PC")
-plotshape(showDbg and newPC and pcC, "Patience candle (call)", shape.square, location.belowbar, color.new(color.orange, 0), size = size.tiny, text = "PC")
 if showDbg and blockMsg != ""
     label.new(bar_index, (longFire or s1L or s3L) ? low : high, "BLOCKED: " + blockMsg, style = (longFire or s1L or s3L) ? label.style_label_up : label.style_label_down, color = color.new(color.gray, 20), textcolor = color.white, size = sz)
 plotshape(showDbg and anyRetestL, "Retest (long)", shape.circle, location.belowbar, color.new(color.lime, 0), size = size.tiny, text = "R")
