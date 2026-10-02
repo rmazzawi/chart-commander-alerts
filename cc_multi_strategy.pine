@@ -514,9 +514,9 @@ bosDn  = ta.barssince(ta.crossunder(close, swingL)) <= 10
 chopL  = chopOnly6 and chop and not (bosChop and bosUp)
 chopS  = chopOnly6 and chop and not (bosChop and bosDn)
 longFire  = s6L or (s2L and swLStr and bar_index - strLBar <= 30) or (not chopL and (s2L or s5L or s4L or s1Lx or s3Lx))
-longFire  := longFire and (s6L or not needPC or recentPC)
+longFire  := longFire and (s6L or not needPC or recentPC or (tf10Bull and close > vwap))   // strong trend: no PC needed
 shortFire = s6S or (s2S and swHStr and bar_index - strHBar <= 30) or (not chopS and (s2S or s5S or s4S or s1Sx or s3Sx))
-shortFire := shortFire and (s6S or not needPC or recentPC)
+shortFire := shortFire and (s6S or not needPC or recentPC or (tf10Bear and close < vwap))
 lName  = s6L ? "S6 TLP PATIENCE" : s2L ? "S2 SWEEP REVERSAL" : s5L ? "S5 TREND PULLBACK" : s4L ? "S4 OPENING DRIVE" : s1Lx ? "S1 ORB 30m" : "S3 VWAP RECLAIM"
 sName  = s6S ? "S6 TLP PATIENCE" : s2S ? "S2 SWEEP REVERSAL" : s5S ? "S5 TREND PULLBACK" : s4S ? "S4 OPENING DRIVE" : s1Sx ? "S1 ORB 30m" : "S3 VWAP LOSS"
 lStop  = s6L ? s6LStop : s2L ? s2LStop : s5L ? s5LStop : s4L ? s4LStop : s1Lx ? s1LStop : s3LStop
