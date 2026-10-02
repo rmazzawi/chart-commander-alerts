@@ -254,6 +254,9 @@ if orbDnT
 // ---------------- S2: liquidity sweep reversal ----------------
 strL = inRTH and low <= nz(lod, low) and vwap - low >= stretch * atr
 strH = inRTH and high >= nz(hod, high) and high - vwap >= stretch * atr
+// Real exhaustion turn in the last 60 min (only the stretched extreme itself counts)
+exhL = ta.barssince(strL) <= 30
+exhH = ta.barssince(strH) <= 30
 swBullLvl = strL or (not na(pml) and low < pml and close > pml) or (not na(pdl) and low < pdl and close > pdl) or (orReady and low < orL and close > orL) or (not na(eqL) and low < eqL and close > eqL)
 swBearLvl = strH or (not na(pmh) and high > pmh and close < pmh) or (not na(pdh) and high > pdh and close < pdh) or (orReady and high > orH and close < orH) or (not na(eqH) and high > eqH and close < eqH)
 var float swLow  = na
@@ -512,7 +515,7 @@ if pos == 0 and (not exited or flipped) and canEntAll and tfOK and barstate.isco
     if longFire and not shortFire
         lStopX = capWide and close - lStop > atr * maxRisk ? close - atr * maxRisk : lStop
         risk = close - lStopX
-        if risk > 0 and (not cloudRule or close > math.max(e34, e50) or math.min(e34, e50) - close > atr * cloudFar) and risk <= atr * maxRisk + syminfo.mintick and (s6L or (revL ? (not use5m or m5C > m5E9) : m5Bull))
+        if risk > 0 and (not cloudRule or (s2L and exhL) or close > math.max(e34, e50) or math.min(e34, e50) - close > atr * cloudFar) and risk <= atr * maxRisk + syminfo.mintick and (s6L or (revL ? (not use5m or m5C > m5E9) : m5Bull))
             pos   := 1
             entry := close
             stop  := lStopX
@@ -535,7 +538,7 @@ if pos == 0 and (not exited or flipped) and canEntAll and tfOK and barstate.isco
     else if shortFire and not longFire
         sStopX = capWide and sStop - close > atr * maxRisk ? close + atr * maxRisk : sStop
         risk = sStopX - close
-        if risk > 0 and (not cloudRule or close < math.min(e34, e50) or close - math.max(e34, e50) > atr * cloudFar) and risk <= atr * maxRisk + syminfo.mintick and (s6S or (revS ? (not use5m or m5C < m5E9) : m5Bear))
+        if risk > 0 and (not cloudRule or (s2S and exhH) or close < math.min(e34, e50) or close - math.max(e34, e50) > atr * cloudFar) and risk <= atr * maxRisk + syminfo.mintick and (s6S or (revS ? (not use5m or m5C < m5E9) : m5Bear))
             pos   := -1
             entry := close
             stop  := sStopX
