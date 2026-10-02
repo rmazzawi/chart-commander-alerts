@@ -357,23 +357,26 @@ f_tlp() =>
     upW   = high - math.max(open, close)
     dnW   = math.min(open, close) - low
     // Rejection patience candle (works in chop): wick INTO VWAP/20 EMA/cloud, closes back away, lighter volume
-    rejP  = (f_touch(v, tl) or high >= v) and close < v and rng > 0 and upW >= 0.4 * rng and lowV and not supNear
-    rejC  = (f_touch(v, tl) or low <= v) and close > v and rng > 0 and dnW >= 0.4 * rng and lowV and not resNear
+    nearV = at * 0.3
+    rejP  = high >= v - nearV and close < v and rng > 0 and (close < open or upW >= 0.4 * rng) and lowV and not supNear
+    rejC  = low <= v + nearV and close > v and rng > 0 and (close > open or dnW >= 0.4 * rng) and lowV and not resNear
     pPut  = (bearT and lvl and lowV and fibP and not supNear) or rejP
     pCall = (bullT and lvl and lowV and fibC and not resNear) or rejC
-    [pPut[1], pCall[1], high[1], low[1], time[1]]
+    [pPut[1], pCall[1], high[1], low[1], time[1], rejP[1], rejC[1]]
 
-[p2P, p2C, p2H, p2L, p2T]       = request.security(syminfo.tickerid, "2", f_tlp(), lookahead = barmerge.lookahead_on)
-[p5P, p5C, p5H, p5L, p5T]       = request.security(syminfo.tickerid, "5", f_tlp(), lookahead = barmerge.lookahead_on)
-[p10P, p10C, p10H, p10L, p10T]  = request.security(syminfo.tickerid, "10", f_tlp(), lookahead = barmerge.lookahead_on)
+[p2P, p2C, p2H, p2L, p2T, p2RP, p2RC] = request.security(syminfo.tickerid, "2", f_tlp(), lookahead = barmerge.lookahead_on)
+[p5P, p5C, p5H, p5L, p5T, p5RP, p5RC] = request.security(syminfo.tickerid, "5", f_tlp(), lookahead = barmerge.lookahead_on)
+[p10P, p10C, p10H, p10L, p10T, p10RP, p10RC] = request.security(syminfo.tickerid, "10", f_tlp(), lookahead = barmerge.lookahead_on)
 in2  = not na(time(timeframe.period, "0930-1000", tz))
 in5  = not na(time(timeframe.period, "1000-1100", tz))
-pcP  = in2 ? p2P : in5 ? p5P : p10P
-pcC  = in2 ? p2C : in5 ? p5C : p10C
-pcH  = in2 ? p2H : in5 ? p5H : p10H
-pcL  = in2 ? p2L : in5 ? p5L : p10L
-pcT  = in2 ? p2T : in5 ? p5T : p10T
-pcWin = in2 ? 2 : in5 ? 5 : 10        // 2m bars allowed for the break (one candle of that timeframe)
+// VWAP rejection patience candles are always read on the 2m chart (that's where you see them)
+sel2 = p2RP or p2RC
+pcP  = sel2 ? p2RP : in2 ? p2P : in5 ? p5P : p10P
+pcC  = sel2 ? p2RC : in2 ? p2C : in5 ? p5C : p10C
+pcH  = sel2 or in2 ? p2H : in5 ? p5H : p10H
+pcL  = sel2 or in2 ? p2L : in5 ? p5L : p10L
+pcT  = sel2 or in2 ? p2T : in5 ? p5T : p10T
+pcWin = sel2 ? 3 : in2 ? 2 : in5 ? 5 : 10        // 2m bars allowed for the break (one candle of that timeframe)
 var int   tlpDir = 0
 var float tlpH   = na
 var float tlpL   = na
