@@ -28,6 +28,8 @@ use5m   = input.bool(true, "Require 5m confirmation (5m close + 9/20 EMA aligned
 needVw  = input.bool(true, "Entry must be on the right side of VWAP (calls above, puts below)", group = gR)
 use30   = input.bool(true, "30m trend must not be against the trade", group = gR)
 entWin  = input.session("0950-1530", "Entry window (ET) - skips opening chaos", group = gR)
+stretch = input.float(2.5, "Reversal: stretch from VWAP that counts as exhaustion (x ATR)", step = 0.25, group = gR)
+s4      = input.bool(true, "S4 - Opening drive (PM high/low break + 9 EMA retest, 9:35-10:30)", group = gR)
 exitT2  = input.bool(false, "Exit everything at Target 2 (off = let runner trail)", group = gR)
 
 gF      = "Filters"
@@ -87,6 +89,8 @@ inPM   = not na(time(timeframe.period, "0400-0930", tz))
 inRTH  = not na(time(timeframe.period, "0930-1600", tz))
 inOR   = not na(time(timeframe.period, "0930-1000", tz))
 canEnt = not na(time(timeframe.period, entWin, tz))
+canEntAll = not na(time(timeframe.period, "0935-1530", tz))
+inDrive = not na(time(timeframe.period, "0932-1030", tz))
 flatT  = not na(time(timeframe.period, "1544-1600", tz))
 tenCls = inRTH and not inOR and (minute(time, tz) + 2) % 10 == 0   // this 2m bar closes a 10m candle
 
@@ -227,8 +231,8 @@ if orbDnT
 [s1S, s1SStop, s1SSt] = f_retest(orbDnT, -1, e20, orL)
 
 // ---------------- S2: liquidity sweep reversal ----------------
-swBullLvl = (not na(pml) and low < pml and close > pml) or (not na(pdl) and low < pdl and close > pdl) or (orReady and low < orL and close > orL) or (not na(eqL) and low < eqL and close > eqL)
-swBearLvl = (not na(pmh) and high > pmh and close < pmh) or (not na(pdh) and high > pdh and close < pdh) or (orReady and high > orH and close < orH) or (not na(eqH) and high > eqH and close < eqH)
+swBullLvl = (inRTH and low <= nz(lod, low) and vwap - low >= stretch * atr) or (not na(pml) and low < pml and close > pml) or (not na(pdl) and low < pdl and close > pdl) or (orReady and low < orL and close > orL) or (not na(eqL) and low < eqL and close > eqL)
+swBearLvl = (inRTH and high >= nz(hod, high) and high - vwap >= stretch * atr) or (not na(pmh) and high > pmh and close < pmh) or (not na(pdh) and high > pdh and close < pdh) or (orReady and high > orH and close < orH) or (not na(eqH) and high > eqH and close < eqH)
 var float swLow  = na
 var float swHigh = na
 var int   swLBar = na
@@ -239,8 +243,8 @@ if inRTH and swBullLvl
 if inRTH and swBearLvl
     swHigh := high
     swHBar := bar_index
-reclaimUp = s2 and tfOK and htfNotBear and not na(swLBar) and bar_index - swLBar <= 15 and close > e9 and close > e20 and close[1] <= e20[1] and rvol >= volMult
-reclaimDn = s2 and tfOK and htfNotBull and not na(swHBar) and bar_index - swHBar <= 15 and close < e9 and close < e20 and close[1] >= e20[1] and rvol >= volMult
+reclaimUp = s2 and tfOK and not na(swLBar) and bar_index - swLBar <= 30 and close > e9 and close > e20 and close[1] <= e20[1] and rvol >= volMult
+reclaimDn = s2 and tfOK and not na(swHBar) and bar_index - swHBar <= 30 and close < e9 and close < e20 and close[1] >= e20[1] and rvol >= volMult
 if reclaimUp
     swLBar := na
 if reclaimDn
@@ -255,6 +259,14 @@ vwUpT = s3 and tfOK and htfBull and not chop and inRTH and close > vwap and clos
 vwDnT = s3 and tfOK and htfBear and not chop and inRTH and close < vwap and close[1] >= vwap[1] and e9 < e20 and rvol >= volMult
 [s3L, s3LStop, s3LSt] = f_retest(vwUpT, 1, vwap, lo10)
 [s3S, s3SStop, s3SSt] = f_retest(vwDnT, -1, vwap, hi10)
+
+// ---------------- S4: opening drive ----------------
+xPmhUp = ta.crossover(close, pmh)
+xPmlDn = ta.crossunder(close, pml)
+drUpT = s4 and tfOK and inDrive and not na(pmh) and xPmhUp and rvol >= volMult and close > vwap
+drDnT = s4 and tfOK and inDrive and not na(pml) and xPmlDn and rvol >= volMult and close < vwap
+[s4L, s4LStop, s4LSt] = f_retest(drUpT, 1, e9, nz(pmh) - atr)
+[s4S, s4SStop, s4SSt] = f_retest(drDnT, -1, e9, nz(pml) + atr)
 
 // ---------------- Targets ----------------
 f_next(float[] lv, float px, int dir, float minD) =>
@@ -334,19 +346,29 @@ exited = exitMsg != ""
 if exited
     pos := 0
 
-longFire  = s2L or s1L or s3L
-shortFire = s2S or s1S or s3S
-lName  = s2L ? "S2 SWEEP REVERSAL" : s1L ? "S1 ORB 30m" : "S3 VWAP RECLAIM"
-sName  = s2S ? "S2 SWEEP REVERSAL" : s1S ? "S1 ORB 30m" : "S3 VWAP LOSS"
-lStop  = s2L ? s2LStop : s1L ? s1LStop : s3LStop
-sStop  = s2S ? s2SStop : s1S ? s1SStop : s3SStop
+// Trend setups (S1,S3) need: entry window + VWAP side + 30m not against.
+// Reversal (S2) and opening drive (S4) are exempt - they ARE the turn / the open.
+trendOkL = canEnt and ok30L and (not needVw or close > vwap)
+trendOkS = canEnt and ok30S and (not needVw or close < vwap)
+s1Lx = s1L and trendOkL
+s3Lx = s3L and trendOkL
+s1Sx = s1S and trendOkS
+s3Sx = s3S and trendOkS
+revL = s2L or s4L
+revS = s2S or s4S
+longFire  = s2L or s4L or s1Lx or s3Lx
+shortFire = s2S or s4S or s1Sx or s3Sx
+lName  = s2L ? "S2 SWEEP REVERSAL" : s4L ? "S4 OPENING DRIVE" : s1Lx ? "S1 ORB 30m" : "S3 VWAP RECLAIM"
+sName  = s2S ? "S2 SWEEP REVERSAL" : s4S ? "S4 OPENING DRIVE" : s1Sx ? "S1 ORB 30m" : "S3 VWAP LOSS"
+lStop  = s2L ? s2LStop : s4L ? s4LStop : s1Lx ? s1LStop : s3LStop
+sStop  = s2S ? s2SStop : s4S ? s4SStop : s1Sx ? s1SStop : s3SStop
 levels = array.from(pmh, pml, pdh, pdl, orH, orL, eqH, eqL, hod, lod, vwap)
 
 entryMsg = ""
-if pos == 0 and not exited and canEnt and tfOK and barstate.isconfirmed
+if pos == 0 and not exited and canEntAll and tfOK and barstate.isconfirmed
     if longFire and not shortFire
         risk = close - lStop
-        if risk > 0 and ok30L and (not needVw or close > vwap) and risk <= atr * maxRisk and (s2L ? (not use5m or m5C > m5E9) : m5Bull)
+        if risk > 0 and risk <= atr * maxRisk and (revL ? (not use5m or m5C > m5E9) : m5Bull)
             pos   := 1
             entry := close
             stop  := lStop
@@ -356,6 +378,10 @@ if pos == 0 and not exited and canEnt and tfOK and barstate.isconfirmed
             b = f_next(levels, t1, 1, risk * minR)
             t2 := na(b) ? close + risk * t2Cap : math.min(b, close + risk * t2Cap)
             t2 := t2 <= t1 ? math.max(t1 + risk * 0.5, close + risk * t2Cap) : t2
+            if s2L and vwap > close + risk * minR
+                t1 := vwap
+                c = f_next(levels, vwap, 1, risk * minR)
+                t2 := na(c) ? vwap + risk : c
             t1Hit := false
             t2Hit := false
             trailOn := false
@@ -364,7 +390,7 @@ if pos == 0 and not exited and canEnt and tfOK and barstate.isconfirmed
             entryMsg := "BUY CALLS"
     else if shortFire and not longFire
         risk = sStop - close
-        if risk > 0 and ok30S and (not needVw or close < vwap) and risk <= atr * maxRisk and (s2S ? (not use5m or m5C < m5E9) : m5Bear)
+        if risk > 0 and risk <= atr * maxRisk and (revS ? (not use5m or m5C < m5E9) : m5Bear)
             pos   := -1
             entry := close
             stop  := sStop
@@ -374,6 +400,10 @@ if pos == 0 and not exited and canEnt and tfOK and barstate.isconfirmed
             b = f_next(levels, t1, -1, risk * minR)
             t2 := na(b) ? close - risk * t2Cap : math.max(b, close - risk * t2Cap)
             t2 := t2 >= t1 ? math.min(t1 - risk * 0.5, close - risk * t2Cap) : t2
+            if s2S and vwap < close - risk * minR
+                t1 := vwap
+                c = f_next(levels, vwap, -1, risk * minR)
+                t2 := na(c) ? vwap - risk : c
             t1Hit := false
             t2Hit := false
             trailOn := false
@@ -455,7 +485,7 @@ if exited
 // Strategy codes: 1 S1 ORB, 2 S2 SWEEP, 3 S3 VWAP
 wasLong  = pos == 1 or (exited and pos[1] == 1)
 actCode  = entryMsg != "" ? (pos == 1 ? 1 : -1) : t1Msg != "" ? (pos == 1 ? 2 : -2) : exited ? (wasLong ? 3 : -3) : 0
-stratCode = str.contains(strat, "S1") ? 1 : str.contains(strat, "S2") ? 2 : str.contains(strat, "S3") ? 3 : 0
+stratCode = str.contains(strat, "S1") ? 1 : str.contains(strat, "S2") ? 2 : str.contains(strat, "S3") ? 3 : str.contains(strat, "S4") ? 4 : 0
 plot(actCode, "ActionCode", display = display.data_window)
 plot(stratCode, "StrategyCode", display = display.data_window)
 plot(rvol, "RVOL", display = display.data_window)

@@ -1,7 +1,7 @@
 // Accepts ANY TradingView body. Never drops a signal: if it can't be parsed, the raw text is shown.
 const KEY = 'change-me';
 const ACT = {'1':'BUY CALLS','-1':'BUY PUTS','2':'SELL HALF CALLS','-2':'SELL HALF PUTS','3':'EXIT CALLS','-3':'EXIT PUTS'};
-const STR = {'1':'S1 ORB 30m','2':'S2 SWEEP REVERSAL','3':'S3 VWAP'};
+const STR = {'1':'S1 ORB 30m','2':'S2 SWEEP REVERSAL','3':'S3 VWAP','4':'S4 OPENING DRIVE'};
 const store = $getWorkflowStaticData('global');
 store.signals = store.signals || [];
 for (const item of $input.all()) {
