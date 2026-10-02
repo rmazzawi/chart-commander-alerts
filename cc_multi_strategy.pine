@@ -37,7 +37,7 @@ s6      = input.bool(true, "S6 - TLP: Trend + Level + Patience candle (2m 9:30-1
 fibMax  = input.float(0.382, "S6: patience candle may retrace at most this Fib of the last leg", step = 0.01, group = gR)
 smaNear = input.float(1.0, "S6: skip if SMA 200/400 is within x ATR in the trade direction (bounce risk)", step = 0.1, group = gR)
 roomR   = input.float(0.8, "Skip if nearest support/resistance is closer than x risk (no room)", step = 0.1, group = gR)
-needPC  = input.bool(true, "Every entry needs a contained patience candle (inside bar + lower volume) in the last 2 candles", group = gR)
+needPC  = input.bool(false, "Every entry needs a contained patience candle (inside bar + lower volume) in the last 2 candles", group = gR)
 bosChop = input.bool(true, "In CHOP: other setups allowed only after a break of the previous swing high/low", group = gR)
 chopOnly6 = input.bool(true, "In CHOP: only S6 (patience candle rejection at VWAP/level) may trade", group = gR)
 s5      = input.bool(true, "S5 - Trend pullback (dip into 34/50 or 72/89 cloud in a 10m trend, then 9/20 reclaim)", group = gR)
