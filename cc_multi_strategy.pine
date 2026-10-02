@@ -394,9 +394,17 @@ lStop  = s2L ? s2LStop : s5L ? s5LStop : s4L ? s4LStop : s1Lx ? s1LStop : s3LSto
 sStop  = s2S ? s2SStop : s5S ? s5SStop : s4S ? s4SStop : s1Sx ? s1SStop : s3SStop
 levels = array.from(pmh, pml, pdh, pdl, orH, orL, eqH, eqL, hod, lod, vwap)
 
+// Opposite signal while in a trade -> close it and flip (e.g. PUT runner still open when the bottom reversal fires)
+flipped = false
+if barstate.isconfirmed and not exited and canEntAll and tfOK and ((pos == -1 and longFire and not shortFire) or (pos == 1 and shortFire and not longFire))
+    exitMsg := pos == 1 ? "SELL CALLS - opposite signal, flipping to PUTS" : "SELL PUTS - opposite signal, flipping to CALLS"
+    pos     := 0
+    exited  := true
+    flipped := true
+
 entryMsg = ""
 blockMsg = ""
-if pos == 0 and not exited and canEntAll and tfOK and barstate.isconfirmed and (longFire or shortFire)
+if pos == 0 and (not exited or flipped) and canEntAll and tfOK and barstate.isconfirmed and (longFire or shortFire)
     isLg = longFire and not shortFire
     rk   = isLg ? close - lStop : sStop - close
     ok5  = isLg ? (revL ? (not use5m or m5C > m5E9) : m5Bull) : (revS ? (not use5m or m5C < m5E9) : m5Bear)
@@ -407,7 +415,7 @@ else if pos == 0 and (longFire or shortFire) and not canEntAll and barstate.isco
     blockMsg := "outside entry time"
 else if pos == 0 and barstate.isconfirmed and ((s1L and not s1Lx) or (s3L and not s3Lx) or (s1S and not s1Sx) or (s3S and not s3Sx))
     blockMsg := "S1/S3 trend filter (VWAP side / 30m / 9:50 window)"
-if pos == 0 and not exited and canEntAll and tfOK and barstate.isconfirmed
+if pos == 0 and (not exited or flipped) and canEntAll and tfOK and barstate.isconfirmed
     if longFire and not shortFire
         risk = close - lStop
         if risk > 0 and risk <= atr * maxRisk and (revL ? (not use5m or m5C > m5E9) : m5Bull)
@@ -460,6 +468,10 @@ var box  bxWin  = na
 var box  bxRisk = na
 var line lnT1   = na
 if entryMsg != ""
+    if flipped and not na(bxWin)
+        box.set_right(bxWin, bar_index)
+        box.set_right(bxRisk, bar_index)
+        line.set_x2(lnT1, bar_index)
     isL  = pos == 1
     rr   = math.abs(t2 - entry) / math.abs(entry - stop)
     rr1  = math.abs(t1 - entry) / math.abs(entry - stop)
