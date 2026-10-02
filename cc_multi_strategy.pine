@@ -614,8 +614,8 @@ plotshape(showDbg and (reclaimUp or pbUpT or orbUpT or vwUpT or drUpT), "Trigger
 plotshape(showDbg and (reclaimDn or pbDnT or orbDnT or vwDnT or drDnT), "Trigger short", shape.diamond, location.abovebar, color.new(color.yellow, 0), size = size.tiny, text = "RC")
 if showDbg and blockMsg != ""
     label.new(bar_index, (longFire or s1L or s3L) ? low : high, "BLOCKED: " + blockMsg, style = (longFire or s1L or s3L) ? label.style_label_up : label.style_label_down, color = color.new(color.gray, 20), textcolor = color.white, size = sz)
-plotshape(anyRetestL, "Retest (long)", shape.circle, location.belowbar, color.new(color.lime, 0), size = size.tiny, text = "R")
-plotshape(anyRetestS, "Retest (short)", shape.circle, location.abovebar, color.new(color.red, 0), size = size.tiny, text = "R")
+plotshape(showDbg and anyRetestL, "Retest (long)", shape.circle, location.belowbar, color.new(color.lime, 0), size = size.tiny, text = "R")
+plotshape(showDbg and anyRetestS, "Retest (short)", shape.circle, location.abovebar, color.new(color.red, 0), size = size.tiny, text = "R")
 
 // ---------------- Dashboard ----------------
 volWord = rvol >= volMult ? "STRONG" : rvol >= 1.0 ? "normal" : "weak"
