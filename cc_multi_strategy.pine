@@ -258,8 +258,8 @@ climaxL = ta.highest(rvol, 15) >= volMult and not na(swLBar) and bar_index - swL
 climaxH = climaxL
 // Reclaim = first close back above the 9 EMA after the low (the 20 lags too far after a steep drop), green candle,
 // volume: normal/rising OR there was a volume climax at the low
-reclaimUp = s2 and tfOK and not na(swLBar) and bar_index - swLBar <= 30 and close > e9 and close[1] <= e9[1] and close > open and (volUp(hC > hV ? 1.0 : volMult) or (climaxL and rv5 >= 1.0))
-reclaimDn = s2 and tfOK and not na(swHBar) and bar_index - swHBar <= 30 and close < e9 and close[1] >= e9[1] and close < open and (volUp(hC < hV ? 1.0 : volMult) or (climaxH and rv5 >= 1.0))
+reclaimUp = s2 and tfOK and not na(swLBar) and bar_index - swLBar <= 30 and close > e9 and close[1] <= e9[1] and close > open and (volUp(hC > hV ? 1.0 : volMult) or (climaxL and rvol >= 0.7))
+reclaimDn = s2 and tfOK and not na(swHBar) and bar_index - swHBar <= 30 and close < e9 and close[1] >= e9[1] and close < open and (volUp(hC < hV ? 1.0 : volMult) or (climaxH and rvol >= 0.7))
 [s2L, s2LStop, s2LSt] = f_retest(reclaimUp, 1, e9 - atr * 0.25, swLow, 2.0)
 [s2S, s2SStop, s2SSt] = f_retest(reclaimDn, -1, e9 + atr * 0.25, swHigh, 2.0)
 
