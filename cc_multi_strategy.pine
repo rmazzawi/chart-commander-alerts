@@ -55,6 +55,7 @@ cloudFar  = input.float(1.5, "...except reversals far from the cloud (more than 
 noChop    = input.bool(true, "No trades when CHOP after the time below (except real exhaustion reversals)", group = gC)
 chopFrom  = input.session("1130-1600", "Chop block active during (ET)", group = gC)
 secondT   = input.bool(true, "First hour: S2 reversal only on a 2nd test (lower high for puts / higher low for calls)", group = gC)
+s2Trend   = input.bool(false, "S2: only with the 400 SMA trend (calls above SMA 400, puts below)", group = gC)
 gD       = "Display"
 showPD   = input.bool(true, "Show levels (PM, PD, OR, EQ)", group = gD)
 showDbg  = input.bool(false, "Show debug markers (SW sweep, RC reclaim, R retest, BLOCKED reason)", group = gD)
@@ -493,6 +494,9 @@ firstHr  = not na(time(timeframe.period, "0930-1030", tz))
 // 2nd test: the swept low must be HIGHER than the low of day (it is a retest, not the first spike)
 s2Lok = not secondT or not firstHr or (not na(swLow) and swLow > nz(lod, swLow) + syminfo.mintick)
 s2Sok = not secondT or not firstHr or (not na(swHigh) and swHigh < nz(hod, swHigh) - syminfo.mintick)
+// S2 trend rule: reversal calls only above the 400 SMA, puts only below it
+s2Lok := s2Lok and (not s2Trend or na(s400) or close > s400)
+s2Sok := s2Sok and (not s2Trend or na(s400) or close < s400)
 longFire  := longFire and not (s2L and not (s6L or s5L or s4L or s1Lx or s3Lx) and not s2Lok)
 shortFire := shortFire and not (s2S and not (s6S or s5S or s4S or s1Sx or s3Sx) and not s2Sok)
 longFire  := longFire and (not noChop or not chop or not chopLate or (s2L and exhL))
