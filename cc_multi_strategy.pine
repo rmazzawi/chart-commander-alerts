@@ -29,6 +29,7 @@ needVw  = input.bool(true, "Entry must be on the right side of VWAP (calls above
 use30   = input.bool(true, "30m trend must not be against the trade", group = gR)
 entWin  = input.session("0950-1530", "Entry window (ET) - skips opening chaos", group = gR)
 stretch = input.float(2.5, "Reversal: stretch from VWAP that counts as exhaustion (x ATR)", step = 0.25, group = gR)
+s5      = input.bool(true, "S5 - Trend pullback (dip into 34/50 or 72/89 cloud in a 10m trend, then 9/20 reclaim)", group = gR)
 s4      = input.bool(true, "S4 - Opening drive (PM high/low break + 9 EMA retest, 9:35-10:30)", group = gR)
 exitT2  = input.bool(false, "Exit everything at Target 2 (off = let runner trail)", group = gR)
 
@@ -243,7 +244,7 @@ if inRTH and swBullLvl
 if inRTH and swBearLvl
     swHigh := high
     swHBar := bar_index
-reclaimUp = s2 and tfOK and not na(swLBar) and bar_index - swLBar <= 30 and close > e9 and close > e20 and close[1] <= e20[1] and rvol >= volMult
+reclaimUp = s2 and tfOK and not na(swLBar) and bar_index - swLBar <= 30 and close > e9 and close > e20 and close[1] <= e20[1] and rvol >= (hC > hV ? 1.0 : volMult)
 reclaimDn = s2 and tfOK and not na(swHBar) and bar_index - swHBar <= 30 and close < e9 and close < e20 and close[1] >= e20[1] and rvol >= volMult
 if reclaimUp
     swLBar := na
@@ -251,6 +252,25 @@ if reclaimDn
     swHBar := na
 [s2L, s2LStop, s2LSt] = f_retest(reclaimUp, 1, e20, swLow)
 [s2S, s2SStop, s2SSt] = f_retest(reclaimDn, -1, e20, swHigh)
+
+// ---------------- S5: trend pullback ----------------
+// 10m trend up -> price dips into the 34/50 or 72/89 cloud (or below VWAP) -> reclaims 9 & 20 EMA -> retest -> confirm
+tf10Bull = hC > hV and hC > math.max(h34, h50)
+tf10Bear = hC < hV and hC < math.min(h34, h50)
+var int   pbLBar = na
+var float pbLow  = na
+var int   pbHBar = na
+var float pbHigh = na
+if s5 and inRTH and tf10Bull and (low <= math.max(e34, e50) or low <= vwap)
+    pbLow  := na(pbLBar) or bar_index - pbLBar > 30 ? low : math.min(pbLow, low)
+    pbLBar := bar_index
+if s5 and inRTH and tf10Bear and (high >= math.min(e34, e50) or high >= vwap)
+    pbHigh := na(pbHBar) or bar_index - pbHBar > 30 ? high : math.max(pbHigh, high)
+    pbHBar := bar_index
+pbUpT = s5 and tfOK and tf10Bull and not na(pbLBar) and bar_index - pbLBar <= 20 and close > e9 and close > e20 and close[1] <= e20[1] and rvol >= 1.0
+pbDnT = s5 and tfOK and tf10Bear and not na(pbHBar) and bar_index - pbHBar <= 20 and close < e9 and close < e20 and close[1] >= e20[1] and rvol >= 1.0
+[s5L, s5LStop, s5LSt] = f_retest(pbUpT, 1, e20, nz(pbLow, low))
+[s5S, s5SStop, s5SSt] = f_retest(pbDnT, -1, e20, nz(pbHigh, high))
 
 // ---------------- S3: VWAP reclaim / loss ----------------
 lo10 = ta.lowest(low, 10)
@@ -354,14 +374,14 @@ s1Lx = s1L and trendOkL
 s3Lx = s3L and trendOkL
 s1Sx = s1S and trendOkS
 s3Sx = s3S and trendOkS
-revL = s2L or s4L
-revS = s2S or s4S
-longFire  = s2L or s4L or s1Lx or s3Lx
-shortFire = s2S or s4S or s1Sx or s3Sx
-lName  = s2L ? "S2 SWEEP REVERSAL" : s4L ? "S4 OPENING DRIVE" : s1Lx ? "S1 ORB 30m" : "S3 VWAP RECLAIM"
-sName  = s2S ? "S2 SWEEP REVERSAL" : s4S ? "S4 OPENING DRIVE" : s1Sx ? "S1 ORB 30m" : "S3 VWAP LOSS"
-lStop  = s2L ? s2LStop : s4L ? s4LStop : s1Lx ? s1LStop : s3LStop
-sStop  = s2S ? s2SStop : s4S ? s4SStop : s1Sx ? s1SStop : s3SStop
+revL = s2L or s4L or s5L
+revS = s2S or s4S or s5S
+longFire  = s2L or s5L or s4L or s1Lx or s3Lx
+shortFire = s2S or s5S or s4S or s1Sx or s3Sx
+lName  = s2L ? "S2 SWEEP REVERSAL" : s5L ? "S5 TREND PULLBACK" : s4L ? "S4 OPENING DRIVE" : s1Lx ? "S1 ORB 30m" : "S3 VWAP RECLAIM"
+sName  = s2S ? "S2 SWEEP REVERSAL" : s5S ? "S5 TREND PULLBACK" : s4S ? "S4 OPENING DRIVE" : s1Sx ? "S1 ORB 30m" : "S3 VWAP LOSS"
+lStop  = s2L ? s2LStop : s5L ? s5LStop : s4L ? s4LStop : s1Lx ? s1LStop : s3LStop
+sStop  = s2S ? s2SStop : s5S ? s5SStop : s4S ? s4SStop : s1Sx ? s1SStop : s3SStop
 levels = array.from(pmh, pml, pdh, pdl, orH, orL, eqH, eqL, hod, lod, vwap)
 
 entryMsg = ""
@@ -485,7 +505,7 @@ if exited
 // Strategy codes: 1 S1 ORB, 2 S2 SWEEP, 3 S3 VWAP
 wasLong  = pos == 1 or (exited and pos[1] == 1)
 actCode  = entryMsg != "" ? (pos == 1 ? 1 : -1) : t1Msg != "" ? (pos == 1 ? 2 : -2) : exited ? (wasLong ? 3 : -3) : 0
-stratCode = str.contains(strat, "S1") ? 1 : str.contains(strat, "S2") ? 2 : str.contains(strat, "S3") ? 3 : str.contains(strat, "S4") ? 4 : 0
+stratCode = str.contains(strat, "S1") ? 1 : str.contains(strat, "S2") ? 2 : str.contains(strat, "S3") ? 3 : str.contains(strat, "S4") ? 4 : str.contains(strat, "S5") ? 5 : 0
 plot(actCode, "ActionCode", display = display.data_window)
 plot(stratCode, "StrategyCode", display = display.data_window)
 plot(rvol, "RVOL", display = display.data_window)
