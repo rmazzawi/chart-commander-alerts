@@ -28,6 +28,7 @@ use5m   = input.bool(true, "Require 5m confirmation (5m close + 9/20 EMA aligned
 needVw  = input.bool(true, "Entry must be on the right side of VWAP (calls above, puts below)", group = gR)
 use30   = input.bool(true, "30m trend must not be against the trade", group = gR)
 entWin  = input.session("0950-1530", "Entry window (ET) - skips opening chaos", group = gR)
+revVol  = input.float(0.8, "Reversal (S2) reclaim candle: min volume x average", step = 0.1, group = gR)
 stretch = input.float(2.5, "Reversal: stretch from VWAP that counts as exhaustion (x ATR)", step = 0.25, group = gR)
 s1In    = input.bool(true, "S1: allow the pullback back INSIDE the 30m range (killed only below range middle)", group = gR)
 s5      = input.bool(true, "S5 - Trend pullback (dip into 34/50 or 72/89 cloud in a 10m trend, then 9/20 reclaim)", group = gR)
@@ -258,8 +259,8 @@ climaxL = ta.highest(rvol, 15) >= volMult and not na(swLBar) and bar_index - swL
 climaxH = climaxL
 // Reclaim = first close back above the 9 EMA after the low (the 20 lags too far after a steep drop), green candle,
 // volume: normal/rising OR there was a volume climax at the low
-reclaimUp = s2 and tfOK and not na(swLBar) and bar_index - swLBar <= 30 and close > e9 and close[1] <= e9[1] and close > open and (volUp(hC > hV ? 1.0 : volMult) or (climaxL and rvol >= 0.7))
-reclaimDn = s2 and tfOK and not na(swHBar) and bar_index - swHBar <= 30 and close < e9 and close[1] >= e9[1] and close < open and (volUp(hC < hV ? 1.0 : volMult) or (climaxH and rvol >= 0.7))
+reclaimUp = s2 and tfOK and not na(swLBar) and bar_index - swLBar <= 30 and close > e9 and close[1] <= e9[1] and close > open and (rvol >= revVol or rv5 >= 1.0 or climaxL)
+reclaimDn = s2 and tfOK and not na(swHBar) and bar_index - swHBar <= 30 and close < e9 and close[1] >= e9[1] and close < open and (rvol >= revVol or rv5 >= 1.0 or climaxH)
 [s2L, s2LStop, s2LSt] = f_retest(reclaimUp, 1, e9 - atr * 0.25, swLow, 2.0)
 [s2S, s2SStop, s2SSt] = f_retest(reclaimDn, -1, e9 + atr * 0.25, swHigh, 2.0)
 
