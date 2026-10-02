@@ -503,7 +503,7 @@ blockMsg = ""
 if pos == 0 and (not exited or flipped) and canEntAll and tfOK and barstate.isconfirmed and (longFire or shortFire)
     isLg = longFire and not shortFire
     rk   = isLg ? close - lStop : sStop - close
-    ok5  = isLg ? (s6L or (revL ? (not use5m or m5C > m5E9) : m5Bull)) : (s6S or (revS ? (not use5m or m5C < m5E9) : m5Bear))
+    ok5  = isLg ? (s6L or (s2L and exhL) or (revL ? (not use5m or m5C > m5E9) : m5Bull)) : (s6S or (s2S and exhH) or (revS ? (not use5m or m5C < m5E9) : m5Bear))
     blockMsg := longFire and shortFire ? "both sides" : rk <= 0 ? "stop on wrong side" : rk > atr * maxRisk and not capWide ? "stop too wide " + str.tostring(rk / atr, "#.#") + "xATR" : not ok5 ? "5m not confirming" : ""
 else if pos != 0 and (longFire or shortFire) and barstate.isconfirmed
     blockMsg := "already in a trade"
@@ -515,7 +515,7 @@ if pos == 0 and (not exited or flipped) and canEntAll and tfOK and barstate.isco
     if longFire and not shortFire
         lStopX = capWide and close - lStop > atr * maxRisk ? close - atr * maxRisk : lStop
         risk = close - lStopX
-        if risk > 0 and (not cloudRule or (s2L and exhL) or close > math.max(e34, e50) or math.min(e34, e50) - close > atr * cloudFar) and risk <= atr * maxRisk + syminfo.mintick and (s6L or (revL ? (not use5m or m5C > m5E9) : m5Bull))
+        if risk > 0 and (not cloudRule or (s2L and exhL) or close > math.max(e34, e50) or math.min(e34, e50) - close > atr * cloudFar) and risk <= atr * maxRisk + syminfo.mintick and (s6L or (s2L and exhL) or (revL ? (not use5m or m5C > m5E9) : m5Bull))
             pos   := 1
             entry := close
             stop  := lStopX
@@ -538,7 +538,7 @@ if pos == 0 and (not exited or flipped) and canEntAll and tfOK and barstate.isco
     else if shortFire and not longFire
         sStopX = capWide and sStop - close > atr * maxRisk ? close + atr * maxRisk : sStop
         risk = sStopX - close
-        if risk > 0 and (not cloudRule or (s2S and exhH) or close < math.min(e34, e50) or close - math.max(e34, e50) > atr * cloudFar) and risk <= atr * maxRisk + syminfo.mintick and (s6S or (revS ? (not use5m or m5C < m5E9) : m5Bear))
+        if risk > 0 and (not cloudRule or (s2S and exhH) or close < math.min(e34, e50) or close - math.max(e34, e50) > atr * cloudFar) and risk <= atr * maxRisk + syminfo.mintick and (s6S or (s2S and exhH) or (revS ? (not use5m or m5C < m5E9) : m5Bear))
             pos   := -1
             entry := close
             stop  := sStopX
