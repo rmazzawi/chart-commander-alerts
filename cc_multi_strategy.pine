@@ -551,7 +551,7 @@ if pos == 0 and (not exited or flipped) and canEntAll and tfOK and barstate.isco
         nRoomL = f_next(roomLv, close, 1, syminfo.mintick)
         lStopX = capWide and close - lStop > atr * maxRisk ? close - atr * maxRisk : lStop
         risk = close - lStopX
-        if risk > 0 and (na(nRoomL) or nRoomL - close >= risk * roomR) and risk <= atr * maxRisk + syminfo.mintick and (s6L or (revL ? (not use5m or m5C > m5E9) : m5Bull))
+        if risk > 0 and (na(nRoomL) or nRoomL - close >= risk * roomR or (tf10Bull and close > vwap)) and risk <= atr * maxRisk + syminfo.mintick and (s6L or (revL ? (not use5m or m5C > m5E9) : m5Bull))
             pos   := 1
             entry := close
             stop  := lStopX
@@ -575,7 +575,7 @@ if pos == 0 and (not exited or flipped) and canEntAll and tfOK and barstate.isco
         nRoomS = f_next(roomLv, close, -1, syminfo.mintick)
         sStopX = capWide and sStop - close > atr * maxRisk ? close + atr * maxRisk : sStop
         risk = sStopX - close
-        if risk > 0 and (na(nRoomS) or close - nRoomS >= risk * roomR) and risk <= atr * maxRisk + syminfo.mintick and (s6S or (revS ? (not use5m or m5C < m5E9) : m5Bear))
+        if risk > 0 and (na(nRoomS) or close - nRoomS >= risk * roomR or (tf10Bear and close < vwap)) and risk <= atr * maxRisk + syminfo.mintick and (s6S or (revS ? (not use5m or m5C < m5E9) : m5Bear))
             pos   := -1
             entry := close
             stop  := sStopX
