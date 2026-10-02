@@ -245,7 +245,7 @@ if inRTH and swBearLvl
     swHigh := high
     swHBar := bar_index
 reclaimUp = s2 and tfOK and not na(swLBar) and bar_index - swLBar <= 30 and close > e9 and close > e20 and close[1] <= e20[1] and rvol >= (hC > hV ? 1.0 : volMult)
-reclaimDn = s2 and tfOK and not na(swHBar) and bar_index - swHBar <= 30 and close < e9 and close < e20 and close[1] >= e20[1] and rvol >= volMult
+reclaimDn = s2 and tfOK and not na(swHBar) and bar_index - swHBar <= 30 and close < e9 and close < e20 and close[1] >= e20[1] and rvol >= (hC < hV ? 1.0 : volMult)
 if reclaimUp
     swLBar := na
 if reclaimDn
