@@ -25,6 +25,10 @@ t2Cap   = input.float(3.0, "Target 2 max (x risk)", step = 0.25, group = gR)
 trailTf = input.timeframe("5", "Trail stop on candles of", group = gR)
 maxRisk = input.float(1.5, "Skip trade if stop is wider than x ATR (options-friendly)", step = 0.1, group = gR)
 use5m   = input.bool(true, "Require 5m confirmation (5m close + 9/20 EMA aligned)", group = gR)
+needVw  = input.bool(true, "Entry must be on the right side of VWAP (calls above, puts below)", group = gR)
+use30   = input.bool(true, "30m trend must not be against the trade", group = gR)
+entWin  = input.session("0950-1530", "Entry window (ET) - skips opening chaos", group = gR)
+exitT2  = input.bool(false, "Exit everything at Target 2 (off = let runner trail)", group = gR)
 
 gF      = "Filters"
 useHtf  = input.bool(true, "10m trend filter for S1 & S3 (calls only if 10m bullish, puts only if bearish)", group = gF)
@@ -82,7 +86,7 @@ newDay = ymd != ymd[1]
 inPM   = not na(time(timeframe.period, "0400-0930", tz))
 inRTH  = not na(time(timeframe.period, "0930-1600", tz))
 inOR   = not na(time(timeframe.period, "0930-1000", tz))
-canEnt = not na(time(timeframe.period, "0932-1530", tz))
+canEnt = not na(time(timeframe.period, entWin, tz))
 flatT  = not na(time(timeframe.period, "1544-1600", tz))
 tenCls = inRTH and not inOR and (minute(time, tz) + 2) % 10 == 0   // this 2m bar closes a 10m candle
 
@@ -191,6 +195,10 @@ htfBull = not useHtf or (hC > hV and hC > math.max(h34, h50))
 htfBear = not useHtf or (hC < hV and hC < math.min(h34, h50))
 htfNotBear = not useHtf or not (hC < hV and hC < math.min(h34, h50))
 htfNotBull = not useHtf or not (hC > hV and hC > math.max(h34, h50))
+// Last COMPLETED 30-minute candle: bigger trend
+[h30C, h30A, h30B] = request.security(syminfo.tickerid, "30", [close[1], ta.ema(close, 34)[1], ta.ema(close, 50)[1]], lookahead = barmerge.lookahead_on)
+ok30L = not use30 or not (h30C < math.min(h30A, h30B))
+ok30S = not use30 or not (h30C > math.max(h30A, h30B))
 // Last COMPLETED 5-minute candle: confirmation for entries
 [m5C, m5E9, m5E20] = request.security(syminfo.tickerid, "5", [close[1], ta.ema(close, 9)[1], ta.ema(close, 20)[1]], lookahead = barmerge.lookahead_on)
 m5Bull = not use5m or (m5C > m5E9 and m5E9 > m5E20)
@@ -268,6 +276,7 @@ var float  stop     = na
 var float  t1       = na
 var float  t2       = na
 var bool   t1Hit    = false
+var bool   t2Hit    = false
 var bool   trailOn  = false
 var int    entryBar = na
 var int    entryT   = na
@@ -287,8 +296,13 @@ if pos == 1 and bar_index > entryBar
         stop := math.max(stop, tLo)
     if low <= stop
         exitMsg := trailOn ? "SELL CALLS - 5m candle low broken" : "SELL CALLS - STOP"
-    else if high >= t2
+    else if high >= t2 and exitT2
         exitMsg := "SELL REST CALLS - Target 2"
+    else if high >= t2 and not t2Hit
+        t2Hit := true
+        t1Hit := true
+        stop  := math.max(stop, t1)
+        t1Msg := "TARGET 2 HIT CALLS - sell more, stop to T1, runner trails"
     else if flatT
         exitMsg := "SELL CALLS - 3:45 flat"
     else if not t1Hit and high >= t1
@@ -302,8 +316,13 @@ else if pos == -1 and bar_index > entryBar
         stop := math.min(stop, tHi)
     if high >= stop
         exitMsg := trailOn ? "SELL PUTS - 5m candle high broken" : "SELL PUTS - STOP"
-    else if low <= t2
+    else if low <= t2 and exitT2
         exitMsg := "SELL REST PUTS - Target 2"
+    else if low <= t2 and not t2Hit
+        t2Hit := true
+        t1Hit := true
+        stop  := math.min(stop, t1)
+        t1Msg := "TARGET 2 HIT PUTS - sell more, stop to T1, runner trails"
     else if flatT
         exitMsg := "SELL PUTS - 3:45 flat"
     else if not t1Hit and low <= t1
@@ -327,7 +346,7 @@ entryMsg = ""
 if pos == 0 and not exited and canEnt and tfOK and barstate.isconfirmed
     if longFire and not shortFire
         risk = close - lStop
-        if risk > 0 and risk <= atr * maxRisk and (s2L ? (not use5m or m5C > m5E9) : m5Bull)
+        if risk > 0 and ok30L and (not needVw or close > vwap) and risk <= atr * maxRisk and (s2L ? (not use5m or m5C > m5E9) : m5Bull)
             pos   := 1
             entry := close
             stop  := lStop
@@ -338,13 +357,14 @@ if pos == 0 and not exited and canEnt and tfOK and barstate.isconfirmed
             t2 := na(b) ? close + risk * t2Cap : math.min(b, close + risk * t2Cap)
             t2 := t2 <= t1 ? math.max(t1 + risk * 0.5, close + risk * t2Cap) : t2
             t1Hit := false
+            t2Hit := false
             trailOn := false
             entryBar := bar_index
             entryT   := time
             entryMsg := "BUY CALLS"
     else if shortFire and not longFire
         risk = sStop - close
-        if risk > 0 and risk <= atr * maxRisk and (s2S ? (not use5m or m5C < m5E9) : m5Bear)
+        if risk > 0 and ok30S and (not needVw or close < vwap) and risk <= atr * maxRisk and (s2S ? (not use5m or m5C < m5E9) : m5Bear)
             pos   := -1
             entry := close
             stop  := sStop
@@ -355,6 +375,7 @@ if pos == 0 and not exited and canEnt and tfOK and barstate.isconfirmed
             t2 := na(b) ? close - risk * t2Cap : math.max(b, close - risk * t2Cap)
             t2 := t2 >= t1 ? math.min(t1 - risk * 0.5, close - risk * t2Cap) : t2
             t1Hit := false
+            t2Hit := false
             trailOn := false
             entryBar := bar_index
             entryT   := time
