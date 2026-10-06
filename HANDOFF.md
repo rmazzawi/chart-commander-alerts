@@ -80,6 +80,8 @@ Added (all tested, user approved):
 
 - Lunch exception test (10/6, market-wide lunch selloff, user asked): lunch trades in trend direction still lose (bad month 36% wins -12R; strong-trend-day only -13R). Keep lunch block. NVDA 10/6 12:06 doji = continuation pause under VWAP at EMA20 (S5 family), not a reversal; future test idea: 'small rejection candle at EMA20 below VWAP in downtrend -> puts' (and mirror).
 
+- 'Breakdown with no pullback' test (10/6, IWM 11:52 drop; analysis/vwap_nopb.py): close beyond VWAP + 10-bar range, 3 candles no reclaim -> enter. Loses: all 44-50% wins, bad month -43R at 1R; after chop 38-47%, negative. Confirms waiting for a retest. Not added.
+
 ## 7. Open items / next steps
 1. After 3–4 weeks of live alerts: export the sheet's **Archive** tab (Drive connector xlsx export works) + user's broker executions → evaluate every alert type (incl. trend-day info alerts) on live data before letting any affect trades.
 2. Candidate tunings to test then (one at a time): minimum move size (T1 ≥0.3–0.4% / min stop), shorter ticker list (liquid 0DTE names), no new entries after 2:30–3:00, minimum entry RVOL (~0.5), hide POSSIBLE rows from the dashboard (keep in log) — user hasn't decided.
