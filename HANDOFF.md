@@ -78,6 +78,8 @@ Added (all tested, user approved):
 - Why 10/6 alerts didn't fire: SPY PM-high retest from above isn't an S2 level; GOOGL blocked by S2 400-SMA rule + first-hour "higher low" rule; IWM rounded bottom at no level, below SMA400, weak volume.
 - Old TradingView webhook errors (500 Sep 25-29, 404 Sep 30-Oct 1) are history; since Oct 2 all delivered. User's plain price alerts ("X Crossing ...") also hit the webhook -> RAW rows; told user to uncheck Webhook on those.
 
+- Lunch exception test (10/6, market-wide lunch selloff, user asked): lunch trades in trend direction still lose (bad month 36% wins -12R; strong-trend-day only -13R). Keep lunch block. NVDA 10/6 12:06 doji = continuation pause under VWAP at EMA20 (S5 family), not a reversal; future test idea: 'small rejection candle at EMA20 below VWAP in downtrend -> puts' (and mirror).
+
 ## 7. Open items / next steps
 1. After 3–4 weeks of live alerts: export the sheet's **Archive** tab (Drive connector xlsx export works) + user's broker executions → evaluate every alert type (incl. trend-day info alerts) on live data before letting any affect trades.
 2. Candidate tunings to test then (one at a time): minimum move size (T1 ≥0.3–0.4% / min stop), shorter ticker list (liquid 0DTE names), no new entries after 2:30–3:00, minimum entry RVOL (~0.5), hide POSSIBLE rows from the dashboard (keep in log) — user hasn't decided.
