@@ -21,7 +21,7 @@ Last updated: 2026-10-06 (session 2). Latest work is on branch **`claude/admirin
 ## 3. Current live versions
 | Piece | File | Notes |
 |---|---|---|
-| **Pine (latest)** | **`CC-Multi_v8.pine`** (= `cc_multi_strategy.pine`), **925 lines**. **User calls it "CC-Multi V8" (same name in TradingView)** — always refer to it by that name | = v4 + PIN BAR info alert. Not compiled by Claude — user verifies in TradingView |
+| **Pine (latest)** | **`CC-Multi_v8.pine`** (= `cc_multi_strategy.pine`), **925 lines**. **User calls it "CC-Multi V8" (same name in TradingView)** — always refer to it by that name | = v4 + PIN BAR info alert (looser rule: any drop into the day low, slow or fast). Not compiled by Claude — user verifies in TradingView |
 | Previous live Pine | `CC-Multi_v4.pine`, 901 lines | |
 | Approved baseline (never modify) | `cc_multi_BASELINE.pine`, 684 lines | |
 | Older versions | `CC-Multi_v2_LUNCH.pine` (699), `CC-Multi_v3.pine` (735), `CC-Multi_S2-400SMA.pine`, `CC-Multi_TEST400.pine` | history |
@@ -45,7 +45,7 @@ Added (all tested, user approved):
    - "VWAP BREAK after one-sided morning - likely fake-out" (10m EMA5/9 stayed one side of VWAP 9:30–10:20, later 10m close through VWAP). Once/ticker/day.
 
 ### What CC-Multi V8 adds (info only, no trade effect)
-- **PIN BAR AT DAY LOW - watch CALLS above X** / **PIN BAR AT DAY HIGH - watch PUTS below X**: 2m candle >= 0.5 x RTH ATR(14), tail >= 60%, body <= 35%, fell/rose >= 1 ATR over last 3 bars into it, tail within 0.15 ATR of the earlier day low/high and closed back inside. 9:36-15:00, not lunch, max 1 per 5 bars per side. Tested (analysis/pinbar_tf.py): ~57-62% wins at 1R, both periods. Today's GOOGL 9:56 pin would NOT fire (slow drift in, fails the 1-ATR rule) - told user.
+- **PIN BAR AT DAY LOW - watch CALLS above X** / **PIN BAR AT DAY HIGH - watch PUTS below X**: 2m candle >= 0.5 x RTH ATR(14), tail >= 60%, body <= 35%, price moved into it over last 3 bars (slow or fast; looser rule chosen 10/6 - same ~60% wins, 2x alerts), tail within 0.15 ATR of the earlier day low/high and closed back inside. 9:36-15:00, not lunch, max 1 per 5 bars per side. Tested (analysis/pinbar_tf.py): ~57-62% wins at 1R, both periods. Today's GOOGL 9:56 pin would NOT fire (slow drift in, fails the 1-ATR rule) - told user.
 
 ## 4. Infrastructure
 - **TradingView alert** per chart: Condition **CC-Multi → "Any alert() function call"**, webhook `https://vmi3437039.contaboserver.net/webhook/tv-signal`. Must be **recreated after every script update** (alerts keep the old version). Each ticker needs its own alert.

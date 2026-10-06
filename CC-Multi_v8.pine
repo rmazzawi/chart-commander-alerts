@@ -898,8 +898,8 @@ if tfOK and barstate.isconfirmed and m10T != m10T[1] and not vwDone and infoMsg 
 if infoMsg != ""
     alert(f_lunch(infoMsg, infoNote), alert.freq_once_per_bar_close)
 
-// 6) PIN BAR at a retest of the day low / high (information only - tested on 2m, 12 tickers, Jul 27-Oct 2: ~60% wins at 1R)
-// Pin = candle at least half an RTH ATR tall, tail >= 60% of the candle, body <= 35%, price fell (rose) >= 1 ATR over the last 3 bars into it,
+// 6) PIN BAR at a retest of the day low / high (information only - tested on 2m, 12 tickers, Jul 27-Oct 2: ~60% wins at 1R, 235 cases - analysis/pin_loose.py)
+// Pin = candle at least half an RTH ATR tall, tail >= 60% of the candle, body <= 35%, price came down (up) into it over the last 3 bars - slow or fast,
 // and the tail touched the earlier low (high) of the day within 0.15 ATR and closed back above (below) it. No alerts during lunch or after 3 PM.
 trNow = ta.tr(true)
 var array<float> pinTR = array.new_float()
@@ -913,8 +913,8 @@ pinAtr  = array.size(pinTR) >= 14 ? array.avg(pinTR) : na
 pinRng  = high - low
 pinBody = math.abs(close - open)
 pinOK   = tfOK and inRTH and barstate.isconfirmed and not lunch and tdMins >= 576 and tdMins < 900 and not na(pinAtr) and pinRng >= 0.5 * pinAtr and pinBody <= 0.35 * pinRng
-pinL = pinOK and math.min(open, close) - low >= 0.6 * pinRng and close[3] - low >= pinAtr and not na(lod[1]) and math.abs(low - lod[1]) <= 0.15 * pinAtr and close > lod[1] and (na(pinLastL) or bar_index - pinLastL > 5)
-pinS = pinOK and high - math.max(open, close) >= 0.6 * pinRng and high - close[3] >= pinAtr and not na(hod[1]) and math.abs(high - hod[1]) <= 0.15 * pinAtr and close < hod[1] and (na(pinLastS) or bar_index - pinLastS > 5)
+pinL = pinOK and math.min(open, close) - low >= 0.6 * pinRng and close[3] > low and not na(lod[1]) and math.abs(low - lod[1]) <= 0.15 * pinAtr and close > lod[1] and (na(pinLastL) or bar_index - pinLastL > 5)
+pinS = pinOK and high - math.max(open, close) >= 0.6 * pinRng and high > close[3] and not na(hod[1]) and math.abs(high - hod[1]) <= 0.15 * pinAtr and close < hod[1] and (na(pinLastS) or bar_index - pinLastS > 5)
 if pinL
     pinLastL := bar_index
     alert(f_lunch("PIN BAR AT DAY LOW - watch CALLS above " + fmt(high), "info only, not a trade: calls only if price breaks " + fmt(high) + " in the next 3 candles, stop " + fmt(low - 0.05 * pinAtr) + ", take profit at 1R (~60% won in tests)"), alert.freq_once_per_bar_close)
