@@ -1,6 +1,6 @@
 # CC-Multi — Project Handoff (read this first)
 
-Last updated: 2026-10-06. Repo: `rmazzawi/chart-commander-alerts`, branch **`claude/gifted-noether-f72n1r`** (all work is here; `claude/sleepy-ramanujan-kb3jjq` = the user's original branch, untouched).
+Last updated: 2026-10-06 (session 2). Latest work is on branch **`claude/admiring-knuth-f7lory`**. Repo: `rmazzawi/chart-commander-alerts`, branch **`claude/gifted-noether-f72n1r`** (all work is here; `claude/sleepy-ramanujan-kb3jjq` = the user's original branch, untouched).
 
 ---
 
@@ -21,10 +21,11 @@ Last updated: 2026-10-06. Repo: `rmazzawi/chart-commander-alerts`, branch **`cla
 ## 3. Current live versions
 | Piece | File | Notes |
 |---|---|---|
-| **Pine (live)** | `CC-Multi_v4.pine` (= `cc_multi_strategy.pine`), **901 lines** | not compiled by Claude — user verifies in TradingView |
+| **Pine (latest)** | **`CC-Multi_v8.pine`** (= `cc_multi_strategy.pine`), **925 lines**. **User calls it "CC-Multi V8" (same name in TradingView)** — always refer to it by that name | = v4 + PIN BAR info alert. Not compiled by Claude — user verifies in TradingView |
+| Previous live Pine | `CC-Multi_v4.pine`, 901 lines | |
 | Approved baseline (never modify) | `cc_multi_BASELINE.pine`, 684 lines | |
 | Older versions | `CC-Multi_v2_LUNCH.pine` (699), `CC-Multi_v3.pine` (735), `CC-Multi_S2-400SMA.pine`, `CC-Multi_TEST400.pine` | history |
-| **n8n workflow (live)** | `n8n/tv_signals_workflow.json` → page shows **"dashboard v7"** | user confirmed v7 running 2026-10-06 |
+| **n8n workflow (latest)** | `n8n/tv_signals_workflow.json` → page shows **"dashboard v8"** | v8 = PIN BAR rows teal + own bell/chime sound (other honk events unchanged). v7 was confirmed running 2026-10-06; v8 sent for install |
 | Google Apps Script | `n8n/archive_apps_script.gs` | hourly archive into sheet tab "Archive" |
 
 ### What v4 contains (on top of the 684-line baseline)
@@ -42,6 +43,9 @@ Added (all tested, user approved):
    - "EXHAUSTION RISK … at <level>": strong move (angle ≥20) makes new extreme within max(2×unit, 0.15%) of prior-day H/L, PM H/L, SMA200/400, 5-day H/L, with 6-bar avg volume ≥75% of first-30-min avg. Once/ticker/day.
    - 11:00–12:00 "TREND PAUSING" (60-min regression angle <20° on the half-day-range-per-hour scale) after a likely/possible trend day.
    - "VWAP BREAK after one-sided morning - likely fake-out" (10m EMA5/9 stayed one side of VWAP 9:30–10:20, later 10m close through VWAP). Once/ticker/day.
+
+### What CC-Multi V8 adds (info only, no trade effect)
+- **PIN BAR AT DAY LOW - watch CALLS above X** / **PIN BAR AT DAY HIGH - watch PUTS below X**: 2m candle >= 0.5 x RTH ATR(14), tail >= 60%, body <= 35%, fell/rose >= 1 ATR over last 3 bars into it, tail within 0.15 ATR of the earlier day low/high and closed back inside. 9:36-15:00, not lunch, max 1 per 5 bars per side. Tested (analysis/pinbar_tf.py): ~57-62% wins at 1R, both periods. Today's GOOGL 9:56 pin would NOT fire (slow drift in, fails the 1-ATR rule) - told user.
 
 ## 4. Infrastructure
 - **TradingView alert** per chart: Condition **CC-Multi → "Any alert() function call"**, webhook `https://vmi3437039.contaboserver.net/webhook/tv-signal`. Must be **recreated after every script update** (alerts keep the old version). Each ticker needs its own alert.
@@ -69,6 +73,10 @@ Added (all tested, user approved):
 - **Trend days**: ~2–4/month per ticker (TSLA 4.3), mostly NOT the same days as SPX (18%). Not explained by CPI/jobs/FOMC (3 of 13). First 15m candle closing at an extreme caught 34/50 stock trend days; direction matched 88% on stocks (~66–83% SPX). Tip-to-tip angle ≥30° **and still pushing at 10:30** → 71% trend days (24 cases); steep-but-early-peak → ~10%. 45° (on this scale) happened only twice → 30° is the threshold.
 - **Reversals/exhaustion**: tip at a key level (PDH/PDL, PMH/PML, SMA200/400, 5-day H/L) → 45% reversed vs 20%; + heavy volume → 61%. Pivots, HTF trend, gap direction: no effect. Flattening around 11–12 is usually a pause, not the end.
 - Live log 2026-10-05: 27 closed trades, 56% wins, +6.0R; S6 best; afternoon (after 2 PM) weak; median stop 0.16% / T1 0.20% of price → moves are tiny vs option spreads (main concern). 189 POSSIBLE alerts = noise.
+
+- **Session 2 tests (2026-10-06):** minimum move size (T1>=0.2-0.4% / stop>=0.15-0.3%): no consistent gain, not added (analysis/minmove.py). Pin bars at key levels on 2/5/10/15/20/30/60/65-min: 15m+ no edge, few trades; 2m ~55% wins ~+0.1R/trade; 10m 58-65% but only 4/12 tickers positive in bad month (analysis/pinbar.py, pinbar_tf.py). By type (2m): day low/high retest 63-64% wins = best; broken-level retest from the other side (SPY 10/6 PM-high type) 51% = coin flip.
+- Why 10/6 alerts didn't fire: SPY PM-high retest from above isn't an S2 level; GOOGL blocked by S2 400-SMA rule + first-hour "higher low" rule; IWM rounded bottom at no level, below SMA400, weak volume.
+- Old TradingView webhook errors (500 Sep 25-29, 404 Sep 30-Oct 1) are history; since Oct 2 all delivered. User's plain price alerts ("X Crossing ...") also hit the webhook -> RAW rows; told user to uncheck Webhook on those.
 
 ## 7. Open items / next steps
 1. After 3–4 weeks of live alerts: export the sheet's **Archive** tab (Drive connector xlsx export works) + user's broker executions → evaluate every alert type (incl. trend-day info alerts) on live data before letting any affect trades.

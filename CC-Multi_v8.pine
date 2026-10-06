@@ -1,5 +1,5 @@
 //@version=6
-// Chart Commander - Multi Strategy (0DTE)
+// Chart Commander - Multi Strategy (0DTE) - CC-Multi V8
 // Tickers: SPY QQQ IWM AAPL MSFT NVDA GOOGL AMZN META TSLA
 // Chart: 2-minute, EXTENDED HOURS ON (needed for premarket high/low)
 // Every entry = trigger -> retest that holds on LIGHTER volume -> confirmation candle on HEAVIER volume
