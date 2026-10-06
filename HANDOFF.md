@@ -1,0 +1,77 @@
+# CC-Multi — Project Handoff (read this first)
+
+Last updated: 2026-10-06. Repo: `rmazzawi/chart-commander-alerts`, branch **`claude/gifted-noether-f72n1r`** (all work is here; `claude/sleepy-ramanujan-kb3jjq` = the user's original branch, untouched).
+
+---
+
+## 1. Who / what
+- User trades **0DTE options (calls/puts)** from a TradingView Pine indicator **"CC-Multi"** on **2-minute charts, extended hours ON**. ~58 tickers on charts.
+- Alerts go **TradingView → n8n webhook → dashboard page + log → Google Sheet**.
+- User is not a programmer: always give **plain-English explanations**, step-by-step click instructions, and **full ready-to-paste files** (never "edit line X").
+
+## 2. User's working rules (follow these)
+1. Change **one thing at a time**.
+2. **Explain in plain English and get a yes BEFORE changing anything** (user often says "tell me first", "don't change anything yet").
+3. New rules: originally "OFF by default" — **but the user later asked for rules to be always ON** (lunch block, 2-loss stop, profit protection, info alerts). Ask when unsure.
+4. **Always send the full .pine file + its line count.**
+5. **Test every change in Python on all tickers first; show before/after tables** (both periods: Jul 27–Sep 3 = "good month", Sep 4–Oct 2 = "bad month") before sending a script.
+6. Chart shows **boxes only**; details go to n8n alerts.
+7. Be honest about weak results; the user values that.
+
+## 3. Current live versions
+| Piece | File | Notes |
+|---|---|---|
+| **Pine (live)** | `CC-Multi_v4.pine` (= `cc_multi_strategy.pine`), **901 lines** | not compiled by Claude — user verifies in TradingView |
+| Approved baseline (never modify) | `cc_multi_BASELINE.pine`, 684 lines | |
+| Older versions | `CC-Multi_v2_LUNCH.pine` (699), `CC-Multi_v3.pine` (735), `CC-Multi_S2-400SMA.pine`, `CC-Multi_TEST400.pine` | history |
+| **n8n workflow (live)** | `n8n/tv_signals_workflow.json` → page shows **"dashboard v7"** | user confirmed v7 running 2026-10-06 |
+| Google Apps Script | `n8n/archive_apps_script.gs` | hourly archive into sheet tab "Archive" |
+
+### What v4 contains (on top of the 684-line baseline)
+Baseline strategies (unchanged): **S1** 30m ORB + 20 EMA retest, **S2** liquidity sweep/exhaustion reversal, **S3** VWAP reclaim/loss, **S4** opening drive (PM high/low break), **S5** trend pullback into 34/50 or 72/89 cloud, **S6** TLP patience candle. Filters: cloud rule, chop block after 11:30, 1st-hour S2 needs 2nd test, 5m confirmation, 10m/30m trend filters. Exits: initial stop, trail on 5m candles, T1 sell half (stop→BE), T2 sell more, 3:45 flat.
+
+Added (all tested, user approved):
+1. **S2 only with the 400 SMA trend** (calls above SMA400, puts below) — setting `s2Trend`, default **ON**.
+2. **Lunch block 12:30–14:00 ET, always on**: no new entries / no POSSIBLE alerts; open trades still managed; alerts "LUNCH BREAK - STOP NEW TRADES" / "LUNCH OVER - TRADING RESUMES".
+3. **Stop after 2 losing trades per ticker per day** (always on) → "DONE FOR TODAY - 2 LOSSES".
+4. **Profit protection**: at 80% of the way to T1 → stop moves to lock 50% of the move → "PROTECT PROFIT CALLS/PUTS - move stop to X"; exit text "profit lock hit".
+5. **Information-only trend-day alerts (no trade effect)**, all tickers:
+   - 9:46 "TREND DAY POSSIBLE UP/DOWN (likely - yesterday choppy)" / "TREND DAY UNLIKELY" (first 15m candle closes in top/bottom 20% vs middle).
+   - 10:30 "TREND DAY LIKELY … (angle N deg, still pushing)" if open→tip triangle angle ≥30° and tip in last 15 min; 20–30° = "POSSIBLE"; steep but tip early = "EARLY SPIKE - not a trend".
+     Angle = arccos(adj/hyp), adj = bars × avg 2m candle (prev 5 days), opp = |tip − open| (zoom-independent, user's requested method).
+   - "EXHAUSTION RISK … at <level>": strong move (angle ≥20) makes new extreme within max(2×unit, 0.15%) of prior-day H/L, PM H/L, SMA200/400, 5-day H/L, with 6-bar avg volume ≥75% of first-30-min avg. Once/ticker/day.
+   - 11:00–12:00 "TREND PAUSING" (60-min regression angle <20° on the half-day-range-per-hour scale) after a likely/possible trend day.
+   - "VWAP BREAK after one-sided morning - likely fake-out" (10m EMA5/9 stayed one side of VWAP 9:30–10:20, later 10m close through VWAP). Once/ticker/day.
+
+## 4. Infrastructure
+- **TradingView alert** per chart: Condition **CC-Multi → "Any alert() function call"**, webhook `https://vmi3437039.contaboserver.net/webhook/tv-signal`. Must be **recreated after every script update** (alerts keep the old version). Each ticker needs its own alert.
+- **Dashboard**: `https://vmi3437039.contaboserver.net/webhook/signals` (user must click the sound button after each page load; STOP HONK button + Esc).
+  - Honks on: LUNCH, DONE FOR TODAY, PROTECT PROFIT, TREND DAY LIKELY, EXHAUSTION. (User declined making every alert honk.)
+  - Resets daily (ET). Version label "dashboard vN" next to title — bump it on every change so the user can verify the import.
+- **Log**: n8n keeps a permanent log in workflow static data, served as CSV at `…/webhook/signals?csv=1`. **Re-importing the workflow wipes it** → before any re-import tell the user to run `archive` once in Apps Script.
+- **Google Sheet** "CC-Multi Signal Log (live)" in reda.mazzawi@gmail.com Drive: id `1u5jCqGPcLcWedliNCqbfPM5y9JDgT6OlfAhEl9lnJ60`. Tab **Archive** = permanent history (Apps Script hourly). Readable via the Google Drive connector (export as xlsx to get all tabs). Old unused sheet "CC-Multi Signal Log" (`1xedRPnVAbRXyINZ0vMlpBvMLzmh6wwlGsiW09QZa-OI`).
+- Claude's sandbox **cannot reach the contabo server** (proxy 403) — can't test the live URL.
+- Webhook key in Pine/n8n: `change-me` (default; both sides match).
+- n8n gotchas learned: a Google Sheets node without credentials can block activation → v6 removed it; duplicate active workflows fight over the same paths.
+
+## 5. Data
+- `data/*.csv.gz` — TradingView exports, 2-minute, extended hours, with CC-Multi **baseline** columns (ActionCode, StrategyCode, RVOL…): AAPL AMD AMZN GLD IWM META MSFT NVDA QQQ SPX SPY TSLA (~Jul 27/Aug 3 → Oct 2; SPX from May 11). `AMEX_SPY_2_S2rule_ON` = SPY with the 400-SMA rule ON (matched Python exactly).
+- ActionCode: 1 BUY CALLS, −1 BUY PUTS, ±2 T1/T2, ±3 exit. StrategyCode 1–6 = S1–S6.
+- User's broker executions (personal, NOT committed): ask user to re-upload if needed.
+- **Setup:** `pip install pandas openpyxl && mkdir work && cd work && python ../analysis/prepare.py` → builds `D_<TK>.pkl` (bars + ATR + date), `T_<TK>.pkl`, `ALL.pkl`; reproduces SPY baseline 84 trades / 35%. Other scripts in `analysis/` chain from these (e.g. `feat.py` → `F.pkl`, `day.py`/`rt.py` → `S2day2.pkl`, `sim.py` → `SIM.pkl`, `doc_tests.py` → `DOC.pkl`, `tdall.py` → `TDALL.pkl`).
+- R = points / initial risk; win = points > 0; T1 counted as half at T1 + half at exit.
+
+## 6. Key findings so far (so you don't redo them)
+- Baseline SPY Sep 4–Oct 2: 84 trades 35%; S2 64 @ 28% was the main loser. Across 12 tickers S2 was +65R Jul–Sep 3 but −63R Sep 4–Oct 2 (regime).
+- **Worked (both periods):** S2 400-SMA rule; lunch block 12:30–14:00; stop after 2 losses/ticker/day; profit protection 80%→lock 50%. #1+#5 together turned the bad month −14.9R → +6.1R.
+- **Didn't work:** per-ticker strategy selection (picks didn't persist, 42% same-sign); quicker exits (current exits best); trend/chop router; 1H alignment; 15m ORB (+0.05R/trade); Fib pullbacks (high win% 55–59% but ~0R on every TF 2/5/10/15m); weekly options + holding losers (high win%, big $ losses); 10m EMA5/9-vs-VWAP reversal/bounce setups (≈50/50 both with premarket on/off).
+- **User's own trading** (Mar 2025–Sep 2026, 2,130 option round trips): −$19,683 incl. $4,146 fees. 306 trades held to ~zero = −$26,497 (everything else +$6.8k). After a loss trades: −$17.9k. Holding >60 min: −$27k. Exiting at −40% would have made ≈ +$8.2k. Trades matching a script signal: +$8.5/trade. Advice given: 1 contract, hard stop −40%/script stop, 2 losses = done, script signals only.
+- **Trend days**: ~2–4/month per ticker (TSLA 4.3), mostly NOT the same days as SPX (18%). Not explained by CPI/jobs/FOMC (3 of 13). First 15m candle closing at an extreme caught 34/50 stock trend days; direction matched 88% on stocks (~66–83% SPX). Tip-to-tip angle ≥30° **and still pushing at 10:30** → 71% trend days (24 cases); steep-but-early-peak → ~10%. 45° (on this scale) happened only twice → 30° is the threshold.
+- **Reversals/exhaustion**: tip at a key level (PDH/PDL, PMH/PML, SMA200/400, 5-day H/L) → 45% reversed vs 20%; + heavy volume → 61%. Pivots, HTF trend, gap direction: no effect. Flattening around 11–12 is usually a pause, not the end.
+- Live log 2026-10-05: 27 closed trades, 56% wins, +6.0R; S6 best; afternoon (after 2 PM) weak; median stop 0.16% / T1 0.20% of price → moves are tiny vs option spreads (main concern). 189 POSSIBLE alerts = noise.
+
+## 7. Open items / next steps
+1. After 3–4 weeks of live alerts: export the sheet's **Archive** tab (Drive connector xlsx export works) + user's broker executions → evaluate every alert type (incl. trend-day info alerts) on live data before letting any affect trades.
+2. Candidate tunings to test then (one at a time): minimum move size (T1 ≥0.3–0.4% / min stop), shorter ticker list (liquid 0DTE names), no new entries after 2:30–3:00, minimum entry RVOL (~0.5), hide POSSIBLE rows from the dashboard (keep in log) — user hasn't decided.
+3. User was offered: dashboard sound for BUY/SELL alerts (declined for now).
+4. Trend-day research could improve with more history (3–6 months).
