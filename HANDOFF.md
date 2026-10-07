@@ -82,6 +82,8 @@ Added (all tested, user approved):
 
 - 'Breakdown with no pullback' test (10/6, IWM 11:52 drop; analysis/vwap_nopb.py): close beyond VWAP + 10-bar range, 3 candles no reclaim -> enter. Loses: all 44-50% wins, bad month -43R at 1R; after chop 38-47%, negative. Confirms waiting for a retest. Not added.
 
+- User idea 10/7 (analysis/orb_ema9.py): 30m opening-range break -> retest of 9 EMA on 2m AND 5m -> entry when trend agrees. Loses: with trend filter good month 50% wins ~-2R, bad month 36% -20R (1R exits); 1/12 tickers positive both months. Not added.
+
 ## 7. Open items / next steps
 1. After 3–4 weeks of live alerts: export the sheet's **Archive** tab (Drive connector xlsx export works) + user's broker executions → evaluate every alert type (incl. trend-day info alerts) on live data before letting any affect trades.
 2. Candidate tunings to test then (one at a time): minimum move size (T1 ≥0.3–0.4% / min stop), shorter ticker list (liquid 0DTE names), no new entries after 2:30–3:00, minimum entry RVOL (~0.5), hide POSSIBLE rows from the dashboard (keep in log) — user hasn't decided.
