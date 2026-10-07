@@ -86,6 +86,8 @@ Added (all tested, user approved):
 
 - 10/7 quiet grind-up day (AMZN/GOOGL/QQQ/SPY +3-6 from morning low, RVOL ~0.8): script took morning puts, few calls. S5 pullbacks rejected by volume rule. Test A (analysis/s5_quiet.py) S5 without volume rule: the extra low-volume trades lose in both months (41%/-7R, 40%/-12R; 0/12 tickers positive). Volume rule stays. Next candidate: test B = block counter-trend trades once day is clearly trending.
 
+- Test B (analysis/testB_counter.py): block trades against an established day trend (after 10:30, >=80% of last hour on one VWAP side + beyond day open). Blocked trades are almost all S2 reversals: good month +24.8R (they WIN), bad month -5.3R. Net: good month 66->51R, bad -1->+1R. Not added. 10/7 charts: morning puts were WITH the trend at the time (premarket+open downtrend, V-turn ~10:45); not counter-trend.
+
 ## 7. Open items / next steps
 1. After 3–4 weeks of live alerts: export the sheet's **Archive** tab (Drive connector xlsx export works) + user's broker executions → evaluate every alert type (incl. trend-day info alerts) on live data before letting any affect trades.
 2. Candidate tunings to test then (one at a time): minimum move size (T1 ≥0.3–0.4% / min stop), shorter ticker list (liquid 0DTE names), no new entries after 2:30–3:00, minimum entry RVOL (~0.5), hide POSSIBLE rows from the dashboard (keep in log) — user hasn't decided.
