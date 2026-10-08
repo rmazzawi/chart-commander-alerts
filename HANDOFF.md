@@ -1,6 +1,8 @@
 # CC-Multi — Project Handoff (read this first)
 
-Last updated: 2026-10-06 (session 2). Latest work is on branch **`claude/admiring-knuth-f7lory`**. Repo: `rmazzawi/chart-commander-alerts`, branch **`claude/gifted-noether-f72n1r`** (all work is here; `claude/sleepy-ramanujan-kb3jjq` = the user's original branch, untouched).
+Last updated: 2026-10-08 (end of session 2). Repo: `rmazzawi/chart-commander-alerts`. **All latest work is on branch `claude/admiring-knuth-f7lory`** (built on `claude/gifted-noether-f72n1r`; `claude/sleepy-ramanujan-kb3jjq` = user's original branch, untouched). Start a new session by checking out that branch and reading this file.
+
+**Quick links:** dashboard `https://vmi3437039.contaboserver.net/webhook/signals` · TradingView webhook URL `https://vmi3437039.contaboserver.net/webhook/tv-signal` · live log CSV `…/webhook/signals?csv=1` · Google Sheet id `1u5jCqGPcLcWedliNCqbfPM5y9JDgT6OlfAhEl9lnJ60` (tab Archive; readable with the Google Drive connector → export xlsx).
 
 ---
 
@@ -89,6 +91,10 @@ Added (all tested, user approved):
 - Test B (analysis/testB_counter.py): block trades against an established day trend (after 10:30, >=80% of last hour on one VWAP side + beyond day open). Blocked trades are almost all S2 reversals: good month +24.8R (they WIN), bad month -5.3R. Net: good month 66->51R, bad -1->+1R. Not added. 10/7 charts: morning puts were WITH the trend at the time (premarket+open downtrend, V-turn ~10:45); not counter-trend.
 
 ## 7. Open items / next steps
+0. **Status at handoff (10/8):** user was installing CC-Multi V8 (looser pin rule) + dashboard v8 and recreating alerts (webhook on, toast pop-ups off). Confirm it's running ("dashboard v8" title, teal PIN BAR rows with bell). Plan: let V8 run 3–4 weeks, then review the Archive tab live results (incl. PIN BAR alerts: did price break the level, 1R vs stop) before letting anything affect trades.
+   - Live 10/7 (to 14:30): 38 closed trades, 53% wins, −1.6R; S5 0/3; S6 61%. Only S1 alert was F puts with a 1-cent stop → candidate test: minimum STOP size (e.g. ≥0.10% of price) — not yet tested.
+   - Open idea backlog (test in Python first, one at a time): minimum stop size; dedicated "quiet low-volume trend day" setup (needs more example days); NVDA-type small rejection at EMA20 under VWAP (continuation); 20 EMA / VWAP retest instead of 9 EMA for the ORB idea.
+   - User shares charts + 2m CSV exports of interesting days: put uploads in their own folder, read with `python3 -I`; today's file covers only ~1–2 days, so ATR/levels come from the CSV itself.
 1. After 3–4 weeks of live alerts: export the sheet's **Archive** tab (Drive connector xlsx export works) + user's broker executions → evaluate every alert type (incl. trend-day info alerts) on live data before letting any affect trades.
 2. Candidate tunings to test then (one at a time): minimum move size (T1 ≥0.3–0.4% / min stop), shorter ticker list (liquid 0DTE names), no new entries after 2:30–3:00, minimum entry RVOL (~0.5), hide POSSIBLE rows from the dashboard (keep in log) — user hasn't decided.
 3. User was offered: dashboard sound for BUY/SELL alerts (declined for now).
