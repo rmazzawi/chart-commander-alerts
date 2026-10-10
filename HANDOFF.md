@@ -94,6 +94,9 @@ Added (all tested, user approved):
 
 - **10/9 Step 4 (analysis/tf_versions.py):** simplified rebuild of the setups (ORB/PB/VW/SW) on 10m and 30m RTH candles, no premarket, exits on 2m bars, costs in R. 10m: ~50% wins, before costs -15R / 0R, after 0.02% cost -102R / -80R; 0/12 tickers positive. 30m: 45% wins, -30R / -37R before costs. Best piece: 10m ORB (+1.9R / -6.2R after cost). Higher TF does NOT rescue it. User's uploads so far are all 2m (~300 bars) - no 5m files exist; asked user to export 5m if wanted.
 
+- 10/10 user's "dips to our stop, then goes our way" (analysis/limit_reentry.py, after 0.02% cost): limit entry deeper (25-100% toward stop, stop 1x risk beyond): good month worse (-6R -> -32..-66R), bad month better only at 100% (-75R -> -33R). Re-entry after stop-out when price closes back above entry: good +2R, bad -12R. Dips that reach the stop keep going more often than they come back. Not added.
+- 5m exports from user have NO signals: V8 input "Signals only on 2-minute chart" (only2m) is ON by default. Asked user to uncheck it and re-export (SPY QQQ AMD AMZN COST GOOGL MSFT NVDA TSLA so far; missing AAPL META IWM GLD). Test script ready: analysis/five_min.py (run from work5/).
+
 ## 7. Open items / next steps
 0. **Status at handoff (10/8):** user was installing CC-Multi V8 (looser pin rule) + dashboard v8 and recreating alerts (webhook on, toast pop-ups off). Confirm it's running ("dashboard v8" title, teal PIN BAR rows with bell). Plan: let V8 run 3–4 weeks, then review the Archive tab live results (incl. PIN BAR alerts: did price break the level, 1R vs stop) before letting anything affect trades.
    - Live 10/7 (to 14:30): 38 closed trades, 53% wins, −1.6R; S5 0/3; S6 61%. Only S1 alert was F puts with a 1-cent stop → candidate test: minimum STOP size (e.g. ≥0.10% of price) — not yet tested.
