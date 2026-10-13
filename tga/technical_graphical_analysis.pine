@@ -23,6 +23,7 @@ showSMA   = input.bool(true, "Show 50 / 200 SMA", group = grpF)
 
 grpL = "Labels"
 lblSizeIn = input.string("large", "Label text size", options = ["tiny", "small", "normal", "large", "huge"], group = grpL)
+lblGap = input.float(1.0, "Label distance from the candle (x ATR, 0 = touching)", minval = 0, step = 0.25, group = grpL)
 grpB = "Entry boxes (show the trade when the move starts)"
 showBoxes  = input.bool(true, "Show long / short boxes when price breaks the pattern", group = grpB)
 watchAlert = input.bool(true, "WATCH alert when the pattern candle closes (gives the trigger price)", group = grpB)
@@ -107,10 +108,10 @@ bearSig := showCandles and bearSig and bearScore >= minScore
 
 lblX = needConfirm ? bar_index - 1 : bar_index
 if bullSig
-    label.new(lblX, low, bullTxt + "\n" + str.tostring(bullScore) + "/4", style = label.style_label_up, yloc = yloc.belowbar, color = color.new(color.green, 10), textcolor = color.white, size = lblSize)
+    label.new(lblX, (needConfirm ? low[1] : low) - lblGap * atr, bullTxt + "\n" + str.tostring(bullScore) + "/4", style = label.style_label_up, yloc = yloc.price, color = color.new(color.green, 10), textcolor = color.white, size = lblSize)
     alert(syminfo.ticker + " shows a " + bullTxt + " candle on the " + timeframe.period + " chart (bullish, " + str.tostring(bullScore) + "/4 confirmations).", alert.freq_once_per_bar_close)
 if bearSig
-    label.new(lblX, high, bearTxt + "\n" + str.tostring(bearScore) + "/4", style = label.style_label_down, yloc = yloc.abovebar, color = color.new(color.red, 10), textcolor = color.white, size = lblSize)
+    label.new(lblX, (needConfirm ? high[1] : high) + lblGap * atr, bearTxt + "\n" + str.tostring(bearScore) + "/4", style = label.style_label_down, yloc = yloc.price, color = color.new(color.red, 10), textcolor = color.white, size = lblSize)
     alert(syminfo.ticker + " shows a " + bearTxt + " candle on the " + timeframe.period + " chart (bearish, " + str.tostring(bearScore) + "/4 confirmations).", alert.freq_once_per_bar_close)
 
 // ───────── Entry boxes: WATCH at pattern close -> box when price breaks the pattern candle ─────────
@@ -243,7 +244,7 @@ dblTop = showDT and nTop >= 2 and not na(neckDn) and ta.crossunder(close, neckDn
 if dblBot
     name = nBot >= 3 ? "Triple Bottom" : "Double Bottom"
     tgt = neckUp + (neckUp - lo1)
-    label.new(bar_index, low, name + " break\nStop " + str.tostring(lo1, format.mintick) + "\nTarget " + str.tostring(tgt, format.mintick), style = label.style_label_up, yloc = yloc.belowbar, color = color.new(color.teal, 0), textcolor = color.white, size = lblSize)
+    label.new(bar_index, low - lblGap * atr, name + " break\nStop " + str.tostring(lo1, format.mintick) + "\nTarget " + str.tostring(tgt, format.mintick), style = label.style_label_up, yloc = yloc.price, color = color.new(color.teal, 0), textcolor = color.white, size = lblSize)
     line.new(bar_index, neckUp, bar_index + 20, neckUp, color = color.teal, style = line.style_dashed)
     if showBoxes and boxDT and aDir == 0 and close > lo1
         aDir  := 1
@@ -258,7 +259,7 @@ if dblBot
 if dblTop
     name = nTop >= 3 ? "Triple Top" : "Double Top"
     tgt = neckDn - (hi1 - neckDn)
-    label.new(bar_index, high, name + " break\nStop " + str.tostring(hi1, format.mintick) + "\nTarget " + str.tostring(tgt, format.mintick), style = label.style_label_down, yloc = yloc.abovebar, color = color.new(color.maroon, 0), textcolor = color.white, size = lblSize)
+    label.new(bar_index, high + lblGap * atr, name + " break\nStop " + str.tostring(hi1, format.mintick) + "\nTarget " + str.tostring(tgt, format.mintick), style = label.style_label_down, yloc = yloc.price, color = color.new(color.maroon, 0), textcolor = color.white, size = lblSize)
     line.new(bar_index, neckDn, bar_index + 20, neckDn, color = color.maroon, style = line.style_dashed)
     if showBoxes and boxDT and aDir == 0 and close < hi1
         aDir  := -1
