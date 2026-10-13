@@ -3,7 +3,7 @@
 // Put on ONE chart (5min recommended, extended hours ON). Scans up to 20 tickers.
 indicator("CC Levels Scanner", overlay = true)
 
-listStr = input.string("SPY,QQQ,TSLA,NVDA,AAPL,AMD,META,AMZN,MSFT,GOOGL", "Tickers (comma separated, max 20)")
+listStr = input.string("SPY,QQQ,TSLA,NVDA,AAPL,AMD,META,AMZN,MSFT,GOOGL,CAVA,PLTR,CVNA,COIN,MSTR,CRWD,LULU,GLD,IWM", "Tickers (comma separated, max 20)")
 syms = str.split(str.replace_all(listStr, " ", ""), ",")
 
 // Runs inside each ticker's data
