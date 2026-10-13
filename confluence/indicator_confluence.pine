@@ -11,6 +11,10 @@ showDash = input.bool(true, "Show dashboard")
 dashSizeIn = input.string("large", "Dashboard text size", options = ["tiny", "small", "normal", "large", "huge"])
 showSAR  = input.bool(true, "Show Parabolic SAR (stop)")
 showKC   = input.bool(false, "Show Keltner Channels")
+grpX = "Trade box (as tested: 5-minute chart, +0.12R per trade after costs, 13 of 13 tickers)"
+showBox  = input.bool(true, "Show trade box: entry -> SAR stop, stop follows the SAR, exit when hit or 4 PM", group = grpX)
+entSess  = input.session("0930-1545", "New entries only in (New York)", group = grpX)
+lblGap   = input.float(2.0, "Label distance from the candle (x ATR)", minval = 0, step = 0.5, group = grpX)
 dashSize = dashSizeIn == "tiny" ? size.tiny : dashSizeIn == "small" ? size.small : dashSizeIn == "normal" ? size.normal : dashSizeIn == "huge" ? size.huge : size.large
 
 // 1) ADX / DMI: +DI above -DI = bullish (only counted when ADX >= adxMin)
@@ -67,12 +71,49 @@ longSig  = longOK and not longOK[1]
 shortSig = shortOK and not shortOK[1]
 kcBreak = close > kcU or close < kcL
 
-if longSig
-    label.new(bar_index, low, "BUY " + str.tostring(bullVotes) + "/10" + (close > kcU ? "\nKeltner break" : "") + "\nStop (SAR) " + str.tostring(sar, format.mintick), yloc = yloc.belowbar, style = label.style_label_up, color = color.new(color.green, 10), textcolor = color.white, size = size.small)
-    alert(syminfo.ticker + " has a bullish indicator confluence (" + str.tostring(bullVotes) + "/10, ADX " + str.tostring(adx, "#") + ") on the " + timeframe.period + " chart. Stop " + str.tostring(sar, format.mintick) + ".", alert.freq_once_per_bar_close)
-if shortSig
-    label.new(bar_index, high, "SELL " + str.tostring(bearVotes) + "/10" + (close < kcL ? "\nKeltner break" : "") + "\nStop (SAR) " + str.tostring(sar, format.mintick), yloc = yloc.abovebar, style = label.style_label_down, color = color.new(color.red, 10), textcolor = color.white, size = size.small)
-    alert(syminfo.ticker + " has a bearish indicator confluence (" + str.tostring(bearVotes) + "/10, ADX " + str.tostring(adx, "#") + ") on the " + timeframe.period + " chart. Stop " + str.tostring(sar, format.mintick) + ".", alert.freq_once_per_bar_close)
+// ───────── Trade box: one trade at a time ─────────
+atrC   = ta.atr(14)
+inEnt  = not na(time(timeframe.period, entSess, "America/New_York")) or not timeframe.isintraday
+inRTHc = not na(time(timeframe.period, "0930-1600", "America/New_York")) or not timeframe.isintraday
+newDay = dayofmonth(time, "America/New_York") != dayofmonth(time[1], "America/New_York")
+var int   cDir = 0
+var float cE   = na
+var float cS   = na
+var float cR   = na
+var box   cBox = na
+var line  cStopLn = na
+// 1) manage the open trade: stopped when price touches the stop; the stop then moves to the new SAR (only in our favour)
+if cDir != 0
+    bool out4 = timeframe.isintraday and (newDay or not inRTHc)
+    bool hit  = cDir == 1 ? low <= cS : high >= cS
+    if out4 or hit
+        float px = out4 ? close[1] : cS
+        float rr = (px - cE) * cDir / cR
+        label.new(bar_index, cDir == 1 ? high + lblGap * atrC : low - lblGap * atrC, "EXIT " + (rr >= 0 ? "+" : "") + str.tostring(rr, "#.0") + "R", yloc = yloc.price, style = cDir == 1 ? label.style_label_down : label.style_label_up, color = rr >= 0 ? color.new(color.green, 10) : color.new(color.gray, 10), textcolor = color.white, size = size.normal)
+        alert(syminfo.ticker + " Confluence " + (cDir == 1 ? "CALLS" : "PUTS") + " EXIT at " + str.tostring(px, format.mintick) + (out4 ? " (4 PM)" : " (SAR stop)") + ", result " + str.tostring(rr, "#.0") + "R.", alert.freq_once_per_bar)
+        cDir := 0
+    else
+        cS := cDir == 1 ? math.max(cS, sar) : math.min(cS, sar)
+        box.set_right(cBox, bar_index)
+        line.set_x2(cStopLn, bar_index)
+        line.set_y1(cStopLn, cS)
+        line.set_y2(cStopLn, cS)
+// 2) new trade only when none is open
+takeL = showBox and cDir == 0 and inEnt and longSig and close > sar
+takeS = showBox and cDir == 0 and inEnt and shortSig and close < sar and not takeL
+if takeL or takeS
+    cDir := takeL ? 1 : -1
+    cE   := close
+    cS   := sar
+    cR   := math.abs(close - sar)
+    cBox := box.new(bar_index, math.max(cE, cS), bar_index + 1, math.min(cE, cS), border_color = color.new(color.red, 0), bgcolor = color.new(color.red, 80))
+    cStopLn := line.new(bar_index, cS, bar_index + 1, cS, color = color.new(color.red, 0), width = 2)
+if takeL or (longSig and not showBox)
+    label.new(bar_index, low - lblGap * atrC, "BUY " + str.tostring(bullVotes) + "/10", yloc = yloc.price, style = label.style_label_up, color = color.new(color.green, 10), textcolor = color.white, size = size.normal)
+    alert(syminfo.ticker + " Confluence CALLS (" + str.tostring(bullVotes) + "/10, ADX " + str.tostring(adx, "#") + ") on the " + timeframe.period + " chart. Entry " + str.tostring(close, format.mintick) + ", stop (SAR) " + str.tostring(sar, format.mintick) + " - stop follows the SAR dots, hold until it is hit.", alert.freq_once_per_bar_close)
+if takeS or (shortSig and not showBox)
+    label.new(bar_index, high + lblGap * atrC, "SELL " + str.tostring(bearVotes) + "/10", yloc = yloc.price, style = label.style_label_down, color = color.new(color.red, 10), textcolor = color.white, size = size.normal)
+    alert(syminfo.ticker + " Confluence PUTS (" + str.tostring(bearVotes) + "/10, ADX " + str.tostring(adx, "#") + ") on the " + timeframe.period + " chart. Entry " + str.tostring(close, format.mintick) + ", stop (SAR) " + str.tostring(sar, format.mintick) + " - stop follows the SAR dots, hold until it is hit.", alert.freq_once_per_bar_close)
 
 // Exit hint: SAR flips against the trade
 plotshape(ta.cross(close, sar), "SAR flip (exit)", shape.xcross, location.abovebar, color.new(color.orange, 0), size = size.tiny)

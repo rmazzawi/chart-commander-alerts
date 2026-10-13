@@ -32,6 +32,7 @@ grpD = "Day High / Low Reversal to VWAP - TEST: ~33% wins, +0.07R after costs, c
 useDR  = input.bool(true, "Day High/Low Reversal signals (no new high/low for N candles -> reverse to VWAP)", group = grpD)
 drBars = input.int(6, "Candles without a new high / low", minval = 2, maxval = 20, group = grpD)
 drSess = input.session("1030-1545", "Day Reversal entry hours (New York)", group = grpD)
+drTks  = input.string("AAPL,AMD,AMZN,MSFT,NVDA,QQQ", "Day Reversal only on these tickers (comma list, empty = all)", group = grpD)
 showBoxes = input.bool(true, "Show long / short boxes (green = profit, red = failure)", group = grpX)
 showLines = input.bool(false, "Also draw the old profit / failure lines", group = grpX)
 lblSizeIn = input.string("large", "Label text size", options = ["tiny", "small", "normal", "large", "huge"], group = grpX)
@@ -196,7 +197,7 @@ newDayD = dayofmonth(time, "America/New_York") != dayofmonth(time[1], "America/N
 dVW = ta.vwap(hlc3)
 inRTHd = not na(time(timeframe.period, "0930-1600", "America/New_York"))
 firstD = inRTHd and (not inRTHd[1] or newDayD)
-inDR = not na(time(timeframe.period, drSess, "America/New_York"))
+inDR = not na(time(timeframe.period, drSess, "America/New_York")) and (str.length(str.trim(drTks)) == 0 or str.contains("," + str.replace_all(str.upper(drTks), " ", "") + ",", "," + syminfo.ticker + ","))
 var float dHi = na
 var float dLo = na
 var int   kH  = na
