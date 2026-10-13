@@ -1,0 +1,168 @@
+// Book 2: "Technical and Graphical Analysis - The Art of Trading"
+// Candlestick patterns (bullish / bearish / indecision) + double/triple top & bottom breaks,
+// confirmed by the book's indicators: 50/200 SMA trend, MACD, RSI, VWAP (intraday), pivot points.
+//@version=5
+indicator("TGA Patterns + Confirmation", overlay = true, max_labels_count = 500, max_lines_count = 500)
+
+// ───────── Inputs ─────────
+grpC = "Candlestick patterns"
+showCandles = input.bool(true, "Show candlestick patterns")
+needConfirm = input.bool(true, "Only signal when next candle confirms (book: 'price must start moving')", group = grpC)
+showIndec   = input.bool(false, "Show Doji / Spinning Top (indecision)", group = grpC)
+
+grpP = "Chart patterns"
+showDT  = input.bool(true, "Double / Triple Top & Bottom", group = grpP)
+pivLen  = input.int(5, "Swing strength (bars each side)", minval = 2, group = grpP)
+eqTol   = input.float(1.0, "Equal highs/lows tolerance (%)", step = 0.1, group = grpP)
+
+grpF = "Confirmation filters"
+minScore  = input.int(2, "Min confirmations (0-4) to show a signal", minval = 0, maxval = 4, group = grpF)
+showPiv   = input.bool(true, "Show daily pivot points (P, R1, R2, S1, S2)", group = grpF)
+showVWAP  = input.bool(true, "Show VWAP (intraday)", group = grpF)
+showSMA   = input.bool(true, "Show 50 / 200 SMA", group = grpF)
+
+grpL = "Labels"
+lblSizeIn = input.string("large", "Label text size", options = ["tiny", "small", "normal", "large", "huge"], group = grpL)
+lblSize = lblSizeIn == "tiny" ? size.tiny : lblSizeIn == "small" ? size.small : lblSizeIn == "normal" ? size.normal : lblSizeIn == "huge" ? size.huge : size.large
+
+// ───────── Indicators from chapter 2 ─────────
+sma50  = ta.sma(close, 50)
+sma200 = ta.sma(close, 200)
+[macdL, sigL, _] = ta.macd(close, 12, 26, 9)
+rsi = ta.rsi(close, 14)
+vw  = ta.vwap(hlc3)
+atr = ta.atr(14)
+
+plot(showSMA ? sma50 : na, "50 SMA", color.new(color.blue, 20))
+plot(showSMA ? sma200 : na, "200 SMA", color.new(color.gray, 0), 2)
+plot(showVWAP and timeframe.isintraday ? vw : na, "VWAP", color.new(color.purple, 0))
+
+// Daily pivot points (classic)
+[pH, pL, pC] = request.security(syminfo.tickerid, "D", [high[1], low[1], close[1]], lookahead = barmerge.lookahead_on)
+P  = (pH + pL + pC) / 3
+R1 = 2 * P - pL
+S1 = 2 * P - pH
+R2 = P + (pH - pL)
+S2 = P - (pH - pL)
+plot(showPiv and timeframe.isintraday ? P  : na, "P",  color.new(color.yellow, 30), style = plot.style_circles)
+plot(showPiv and timeframe.isintraday ? R1 : na, "R1", color.new(color.red, 40),    style = plot.style_circles)
+plot(showPiv and timeframe.isintraday ? R2 : na, "R2", color.new(color.red, 60),    style = plot.style_circles)
+plot(showPiv and timeframe.isintraday ? S1 : na, "S1", color.new(color.green, 40),  style = plot.style_circles)
+plot(showPiv and timeframe.isintraday ? S2 : na, "S2", color.new(color.green, 60),  style = plot.style_circles)
+
+// Bull score: price above 50 SMA, MACD above signal, RSI not overbought (<70), above VWAP (intraday only)
+bullScore = (close > sma50 ? 1 : 0) + (macdL > sigL ? 1 : 0) + (rsi < 70 ? 1 : 0) + (timeframe.isintraday ? (close > vw ? 1 : 0) : (close > sma200 ? 1 : 0))
+bearScore = (close < sma50 ? 1 : 0) + (macdL < sigL ? 1 : 0) + (rsi > 30 ? 1 : 0) + (timeframe.isintraday ? (close < vw ? 1 : 0) : (close < sma200 ? 1 : 0))
+
+// ───────── Candle anatomy ─────────
+body  = math.abs(close - open)
+rng   = high - low
+upW   = high - math.max(open, close)
+loW   = math.min(open, close) - low
+avgBody = ta.sma(body, 14)
+bull = close > open
+bear = close < open
+downTrend = close < ta.sma(close, 10) and ta.sma(close, 10) < ta.sma(close, 10)[3]
+upTrend   = close > ta.sma(close, 10) and ta.sma(close, 10) > ta.sma(close, 10)[3]
+longBody(i)  => body[i] > avgBody[i]
+smallBody(i) => body[i] < avgBody[i] * 0.5
+
+// Bullish (after a decline)
+hammer      = downTrend and loW >= 2 * body and upW <= body * 0.5 and rng > 0 and body > 0
+bullEngulf  = downTrend[1] and bear[1] and bull and close >= open[1] and open <= close[1] and body > body[1]
+morningStar = downTrend[2] and bear[2] and longBody(2) and smallBody(1) and bull and close > (open[2] + close[2]) / 2
+threeWhite  = bull and bull[1] and bull[2] and longBody(0) and longBody(1) and longBody(2) and close > close[1] and close[1] > close[2] and open > open[1] and open[1] > open[2] and downTrend[3]
+
+// Bearish (after an advance)
+hangingMan  = upTrend and loW >= 2 * body and upW <= body * 0.5 and rng > 0 and body > 0
+shootStar   = upTrend and upW >= 2 * body and loW <= body * 0.5 and rng > 0 and body > 0
+bearEngulf  = upTrend[1] and bull[1] and bear and open >= close[1] and close <= open[1] and body > body[1]
+eveningStar = upTrend[2] and bull[2] and longBody(2) and smallBody(1) and bear and close < (open[2] + close[2]) / 2
+threeCrows  = bear and bear[1] and bear[2] and longBody(0) and longBody(1) and longBody(2) and close < close[1] and close[1] < close[2] and upTrend[3]
+
+// Indecision
+doji     = rng > 0 and body <= rng * 0.1
+spinTop  = rng > 0 and body <= rng * 0.3 and body > rng * 0.1 and upW > body and loW > body
+
+// Raw pattern names
+bullName = hammer ? "Hammer" : bullEngulf ? "Bull Engulfing" : morningStar ? "Morning Star" : threeWhite ? "3 White Soldiers" : ""
+bearName = hangingMan ? "Hanging Man" : shootStar ? "Shooting Star" : bearEngulf ? "Bear Engulfing" : eveningStar ? "Evening Star" : threeCrows ? "3 Black Crows" : ""
+
+// Confirmation = next candle closes beyond the pattern candle
+bullPat = bullName != ""
+bearPat = bearName != ""
+bullSig = needConfirm ? (bullPat[1] and close > high[1]) : bullPat
+bearSig = needConfirm ? (bearPat[1] and close < low[1])  : bearPat
+bullTxt = needConfirm ? bullName[1] : bullName
+bearTxt = needConfirm ? bearName[1] : bearName
+
+bullSig := showCandles and bullSig and bullScore >= minScore
+bearSig := showCandles and bearSig and bearScore >= minScore
+
+if bullSig
+    label.new(bar_index, low, bullTxt + "\n" + str.tostring(bullScore) + "/4", style = label.style_label_up, yloc = yloc.belowbar, color = color.new(color.green, 10), textcolor = color.white, size = lblSize)
+    alert(syminfo.ticker + " shows a " + bullTxt + " candle on the " + timeframe.period + " chart (bullish, " + str.tostring(bullScore) + "/4 confirmations).", alert.freq_once_per_bar_close)
+if bearSig
+    label.new(bar_index, high, bearTxt + "\n" + str.tostring(bearScore) + "/4", style = label.style_label_down, yloc = yloc.abovebar, color = color.new(color.red, 10), textcolor = color.white, size = lblSize)
+    alert(syminfo.ticker + " shows a " + bearTxt + " candle on the " + timeframe.period + " chart (bearish, " + str.tostring(bearScore) + "/4 confirmations).", alert.freq_once_per_bar_close)
+
+plotshape(showIndec and doji, "Doji", shape.cross, location.abovebar, color.new(color.gray, 0), size = size.tiny)
+plotshape(showIndec and spinTop and not doji, "Spinning Top", shape.diamond, location.abovebar, color.new(color.gray, 30), size = size.tiny)
+
+// ───────── Double / Triple Top & Bottom (chapter 3) ─────────
+// Bottoms: 2 or 3 roughly equal swing lows, entry on break above the neckline (highest high between them)
+ph = ta.pivothigh(high, pivLen, pivLen)
+pl = ta.pivotlow(low, pivLen, pivLen)
+
+var float lo1 = na
+var float hi1 = na
+var float neckUp = na
+var float neckDn = na
+var int   nBot = 0
+var int   nTop = 0
+var float lastPH = na
+var float lastPL = na
+
+near(a, b) => math.abs(a - b) / b * 100 <= eqTol
+
+if not na(ph)
+    lastPH := ph
+    if not na(hi1) and near(ph, hi1)
+        nTop := nTop + 1
+        hi1 := math.max(hi1, ph)
+    else
+        hi1 := ph
+        nTop := 1
+    neckDn := lastPL
+if not na(pl)
+    lastPL := pl
+    if not na(lo1) and near(pl, lo1)
+        nBot := nBot + 1
+        lo1 := math.min(lo1, pl)
+    else
+        lo1 := pl
+        nBot := 1
+    neckUp := lastPH
+
+dblBot = showDT and nBot >= 2 and not na(neckUp) and ta.crossover(close, neckUp)
+dblTop = showDT and nTop >= 2 and not na(neckDn) and ta.crossunder(close, neckDn)
+
+if dblBot
+    name = nBot >= 3 ? "Triple Bottom" : "Double Bottom"
+    tgt = neckUp + (neckUp - lo1)
+    label.new(bar_index, low, name + " break\nStop " + str.tostring(lo1, format.mintick) + "\nTarget " + str.tostring(tgt, format.mintick), style = label.style_label_up, yloc = yloc.belowbar, color = color.new(color.teal, 0), textcolor = color.white, size = lblSize)
+    line.new(bar_index, neckUp, bar_index + 20, neckUp, color = color.teal, style = line.style_dashed)
+    alert(syminfo.ticker + " has a " + name + " breakout on the " + timeframe.period + " chart. Neckline " + str.tostring(neckUp, format.mintick) + ", target " + str.tostring(tgt, format.mintick) + ".", alert.freq_once_per_bar_close)
+    nBot := 0
+if dblTop
+    name = nTop >= 3 ? "Triple Top" : "Double Top"
+    tgt = neckDn - (hi1 - neckDn)
+    label.new(bar_index, high, name + " break\nStop " + str.tostring(hi1, format.mintick) + "\nTarget " + str.tostring(tgt, format.mintick), style = label.style_label_down, yloc = yloc.abovebar, color = color.new(color.maroon, 0), textcolor = color.white, size = lblSize)
+    line.new(bar_index, neckDn, bar_index + 20, neckDn, color = color.maroon, style = line.style_dashed)
+    alert(syminfo.ticker + " has a " + name + " breakdown on the " + timeframe.period + " chart. Neckline " + str.tostring(neckDn, format.mintick) + ", target " + str.tostring(tgt, format.mintick) + ".", alert.freq_once_per_bar_close)
+    nTop := 0
+
+alertcondition(bullSig, "TGA Bullish candle", "{{ticker}} bullish candle pattern on {{interval}}")
+alertcondition(bearSig, "TGA Bearish candle", "{{ticker}} bearish candle pattern on {{interval}}")
+alertcondition(dblBot, "TGA Double/Triple Bottom", "{{ticker}} double/triple bottom breakout on {{interval}}")
+alertcondition(dblTop, "TGA Double/Triple Top", "{{ticker}} double/triple top breakdown on {{interval}}")
