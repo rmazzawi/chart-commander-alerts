@@ -101,6 +101,9 @@ Added (all tested, user approved):
 
 - 10/13 **Uni Flag Simple** (user's other strategy, built in another chat; now saved as uni_flag/uni_flag_simple.pine). TV backtest CRCL: 2m -29.9% (1454 tr, 31%, PF 0.90, commission load 19.5%) vs 31m +58.5% (89 tr, 53%, PF 2.16). My Python copy (analysis/uni_flag.py) on 9 tickers 5m exports May-Oct, RTH candles: 30m all tickers PF 0.71 (hold overnight) / 0.66 (flat 15:55); 60m PF 0.78 / 0.93; only MSFT/COST(/NVDA) positive. Preliminary - python copy not yet verified against TV trade list; asked user for TV Strategy Tester 'List of trades' exports on 31m for SPY/QQQ/NVDA etc.
 
+- 10/13 user's other scripts saved in repo: tga/ (TGA Patterns: label size, labels on pattern candle, WATCH + auto long/short boxes w/o text, RTH-only, 4PM close, replace stale box), confluence/ (dashboard text size), farley/ (green/red boxes w/o text, min reward/risk 1.5x, range failure just inside broken edge). None of these were backtested except below.
+- BB reversal test (analysis/bb_reversal.py, 5m, 9 tickers May-Oct): poke outside Bollinger band, close back inside, break of that candle. Target middle band (min 1.5R): 983 tr, 36% wins, +80.6R before costs, -38.8R after 0.02% costs; only AMD clearly positive (+27R after cost). Fixed 2R: 4366 tr, +75R before, -335R after costs.
+
 ## 7. Open items / next steps
 0. **Status at handoff (10/8):** user was installing CC-Multi V8 (looser pin rule) + dashboard v8 and recreating alerts (webhook on, toast pop-ups off). Confirm it's running ("dashboard v8" title, teal PIN BAR rows with bell). Plan: let V8 run 3–4 weeks, then review the Archive tab live results (incl. PIN BAR alerts: did price break the level, 1R vs stop) before letting anything affect trades.
    - Live 10/7 (to 14:30): 38 closed trades, 53% wins, −1.6R; S5 0/3; S6 61%. Only S1 alert was F puts with a 1-cent stop → candidate test: minimum STOP size (e.g. ≥0.10% of price) — not yet tested.
