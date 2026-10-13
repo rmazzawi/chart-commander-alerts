@@ -28,68 +28,87 @@ levels() =>
     if not na(time(timeframe.period, "0930-1600", "America/New_York"))
         rthH := na(rthH) ? high : math.max(rthH, high)
         rthL := na(rthL) ? low : math.min(rthL, low)
-    [close, pmh, pml, pdh, pdl, ta.vwap(hlc3)]
+    // Indicator Confluence (10 votes) - same rules as the "Indicator Confluence (10 votes)" script
+    [diP, diM, adx] = ta.dmi(14, 14)
+    aUp = 100 * (14 + ta.highestbars(high, 15)) / 14
+    aDn = 100 * (14 + ta.lowestbars(low, 15)) / 14
+    [macdL, sigL, _h] = ta.macd(close, 12, 26, 9)
+    rsi = ta.rsi(close, 14)
+    mfm = high != low ? ((close - low) - (high - close)) / (high - low) : 0
+    cmf = math.sum(mfm * volume, 20) / math.sum(volume, 20)
+    fi = ta.ema(ta.change(close) * volume, 13)
+    trix = 10000 * ta.change(math.log(ta.ema(ta.ema(ta.ema(close, 18), 18), 18)))
+    obv = ta.obv
+    ema20 = ta.ema(close, 20)
+    kcU = ema20 + 2 * ta.atr(10)
+    kcL = ema20 - 2 * ta.atr(10)
+    v = array.from(diP > diM ? 1 : -1, aUp > 70 and aUp > aDn ? 1 : aDn > 70 and aDn > aUp ? -1 : 0, macdL > sigL ? 1 : -1, macdL > 0 ? 1 : -1, rsi > 50 ? 1 : -1, cmf > 0 ? 1 : -1, fi > 0 ? 1 : -1, trix > ta.ema(trix, 9) ? 1 : -1, obv > ta.ema(obv, 20) ? 1 : -1, close > ema20 and ema20 > ema20[1] ? 1 : close < ema20 and ema20 < ema20[1] ? -1 : 0)
+    votes = ""
+    for x in v
+        votes += x > 0 ? "B" : x < 0 ? "S" : "-"
+    kc = close > kcU ? 1 : close < kcL ? -1 : 0
+    [close, pmh, pml, pdh, pdl, ta.vwap(hlc3), adx, votes, kc]
 
 get(i) =>
     s = i < array.size(syms) ? array.get(syms, i) : ""
     t = s == "" ? syminfo.tickerid : ticker.new("", s, session.extended)
-    [c, a, b, d, e, v] = request.security(t, timeframe.period, levels())
-    [s, c, a, b, d, e, v]
+    [c, a, b, d, e, v, x, vs, k] = request.security(t, timeframe.period, levels())
+    [s, c, a, b, d, e, v, x, vs, k]
 
 // numbers as text; a missing value is sent as null (NaN is not valid JSON and made n8n ignore the whole message)
 num(x) => na(x) ? "null" : str.tostring(x, "#.##")
 
-fmt(s, c, pmh, pml, pdh, pdl, v) =>
+fmt(s, c, pmh, pml, pdh, pdl, v, adx, votes, kc) =>
     sig = c > pdh ? "ABOVE PDH" : c < pdl ? "BELOW PDL" : c > pmh ? "ABOVE PMH" : c < pml ? "BELOW PML" : "INSIDE"
-    '{"t":"' + s + '","price":' + num(c) + ',"pmh":' + num(pmh) + ',"pml":' + num(pml) + ',"pdh":' + num(pdh) + ',"pdl":' + num(pdl) + ',"vwap":' + num(v) + ',"side":"' + (c >= v ? "ABOVE" : "BELOW") + '","signal":"' + sig + '"}'
+    '{"t":"' + s + '","price":' + num(c) + ',"pmh":' + num(pmh) + ',"pml":' + num(pml) + ',"pdh":' + num(pdh) + ',"pdl":' + num(pdl) + ',"vwap":' + num(v) + ',"side":"' + (c >= v ? "ABOVE" : "BELOW") + '","signal":"' + sig + '","adx":' + num(adx) + ',"votes":"' + votes + '","kc":' + str.tostring(kc) + '}'
 
 var rows = array.new_string()
 array.clear(rows)
-add(s, c, a, b, d, e, v) =>
+add(s, c, a, b, d, e, v, x, vs, k) =>
     if s != ""
-        array.push(rows, fmt(s, c, a, b, d, e, v))
+        array.push(rows, fmt(s, c, a, b, d, e, v, x, vs, k))
 
 // request.security must be called with fixed indexes (Pine rule), so 20 lines:
-[s0,c0,a0,b0,d0,e0,v0] = get(0)
-add(s0,c0,a0,b0,d0,e0,v0)
-[s1,c1,a1,b1,d1,e1,v1] = get(1)
-add(s1,c1,a1,b1,d1,e1,v1)
-[s2,c2,a2,b2,d2,e2,v2] = get(2)
-add(s2,c2,a2,b2,d2,e2,v2)
-[s3,c3,a3,b3,d3,e3,v3] = get(3)
-add(s3,c3,a3,b3,d3,e3,v3)
-[s4,c4,a4,b4,d4,e4,v4] = get(4)
-add(s4,c4,a4,b4,d4,e4,v4)
-[s5,c5,a5,b5,d5,e5,v5] = get(5)
-add(s5,c5,a5,b5,d5,e5,v5)
-[s6,c6,a6,b6,d6,e6,v6] = get(6)
-add(s6,c6,a6,b6,d6,e6,v6)
-[s7,c7,a7,b7,d7,e7,v7] = get(7)
-add(s7,c7,a7,b7,d7,e7,v7)
-[s8,c8,a8,b8,d8,e8,v8] = get(8)
-add(s8,c8,a8,b8,d8,e8,v8)
-[s9,c9,a9,b9,d9,e9,v9] = get(9)
-add(s9,c9,a9,b9,d9,e9,v9)
-[s10,c10,a10,b10,d10,e10,v10] = get(10)
-add(s10,c10,a10,b10,d10,e10,v10)
-[s11,c11,a11,b11,d11,e11,v11] = get(11)
-add(s11,c11,a11,b11,d11,e11,v11)
-[s12,c12,a12,b12,d12,e12,v12] = get(12)
-add(s12,c12,a12,b12,d12,e12,v12)
-[s13,c13,a13,b13,d13,e13,v13] = get(13)
-add(s13,c13,a13,b13,d13,e13,v13)
-[s14,c14,a14,b14,d14,e14,v14] = get(14)
-add(s14,c14,a14,b14,d14,e14,v14)
-[s15,c15,a15,b15,d15,e15,v15] = get(15)
-add(s15,c15,a15,b15,d15,e15,v15)
-[s16,c16,a16,b16,d16,e16,v16] = get(16)
-add(s16,c16,a16,b16,d16,e16,v16)
-[s17,c17,a17,b17,d17,e17,v17] = get(17)
-add(s17,c17,a17,b17,d17,e17,v17)
-[s18,c18,a18,b18,d18,e18,v18] = get(18)
-add(s18,c18,a18,b18,d18,e18,v18)
-[s19,c19,a19,b19,d19,e19,v19] = get(19)
-add(s19,c19,a19,b19,d19,e19,v19)
+[s0,c0,a0,b0,d0,e0,v0,x0,vs0,k0] = get(0)
+add(s0,c0,a0,b0,d0,e0,v0,x0,vs0,k0)
+[s1,c1,a1,b1,d1,e1,v1,x1,vs1,k1] = get(1)
+add(s1,c1,a1,b1,d1,e1,v1,x1,vs1,k1)
+[s2,c2,a2,b2,d2,e2,v2,x2,vs2,k2] = get(2)
+add(s2,c2,a2,b2,d2,e2,v2,x2,vs2,k2)
+[s3,c3,a3,b3,d3,e3,v3,x3,vs3,k3] = get(3)
+add(s3,c3,a3,b3,d3,e3,v3,x3,vs3,k3)
+[s4,c4,a4,b4,d4,e4,v4,x4,vs4,k4] = get(4)
+add(s4,c4,a4,b4,d4,e4,v4,x4,vs4,k4)
+[s5,c5,a5,b5,d5,e5,v5,x5,vs5,k5] = get(5)
+add(s5,c5,a5,b5,d5,e5,v5,x5,vs5,k5)
+[s6,c6,a6,b6,d6,e6,v6,x6,vs6,k6] = get(6)
+add(s6,c6,a6,b6,d6,e6,v6,x6,vs6,k6)
+[s7,c7,a7,b7,d7,e7,v7,x7,vs7,k7] = get(7)
+add(s7,c7,a7,b7,d7,e7,v7,x7,vs7,k7)
+[s8,c8,a8,b8,d8,e8,v8,x8,vs8,k8] = get(8)
+add(s8,c8,a8,b8,d8,e8,v8,x8,vs8,k8)
+[s9,c9,a9,b9,d9,e9,v9,x9,vs9,k9] = get(9)
+add(s9,c9,a9,b9,d9,e9,v9,x9,vs9,k9)
+[s10,c10,a10,b10,d10,e10,v10,x10,vs10,k10] = get(10)
+add(s10,c10,a10,b10,d10,e10,v10,x10,vs10,k10)
+[s11,c11,a11,b11,d11,e11,v11,x11,vs11,k11] = get(11)
+add(s11,c11,a11,b11,d11,e11,v11,x11,vs11,k11)
+[s12,c12,a12,b12,d12,e12,v12,x12,vs12,k12] = get(12)
+add(s12,c12,a12,b12,d12,e12,v12,x12,vs12,k12)
+[s13,c13,a13,b13,d13,e13,v13,x13,vs13,k13] = get(13)
+add(s13,c13,a13,b13,d13,e13,v13,x13,vs13,k13)
+[s14,c14,a14,b14,d14,e14,v14,x14,vs14,k14] = get(14)
+add(s14,c14,a14,b14,d14,e14,v14,x14,vs14,k14)
+[s15,c15,a15,b15,d15,e15,v15,x15,vs15,k15] = get(15)
+add(s15,c15,a15,b15,d15,e15,v15,x15,vs15,k15)
+[s16,c16,a16,b16,d16,e16,v16,x16,vs16,k16] = get(16)
+add(s16,c16,a16,b16,d16,e16,v16,x16,vs16,k16)
+[s17,c17,a17,b17,d17,e17,v17,x17,vs17,k17] = get(17)
+add(s17,c17,a17,b17,d17,e17,v17,x17,vs17,k17)
+[s18,c18,a18,b18,d18,e18,v18,x18,vs18,k18] = get(18)
+add(s18,c18,a18,b18,d18,e18,v18,x18,vs18,k18)
+[s19,c19,a19,b19,d19,e19,v19,x19,vs19,k19] = get(19)
+add(s19,c19,a19,b19,d19,e19,v19,x19,vs19,k19)
 
 // Send the whole list to n8n once per bar close (live bars only)
 if barstate.isrealtime
