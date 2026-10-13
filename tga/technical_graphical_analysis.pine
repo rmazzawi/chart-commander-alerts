@@ -185,7 +185,11 @@ if trigL
     aS    := pLstop
     aT    := aE + rrT * (aE - aS)
     aWin  := box.new(bar_index, aT, bar_index + 1, aE, border_color = color.new(color.green, 0), bgcolor = color.new(color.green, 75), text = "LONG - " + pLname + "\nTarget " + str.tostring(aT, format.mintick), text_color = color.white, text_size = lblSize)
+    box.set_text_valign(aWin, text.align_top)
+    box.set_text_halign(aWin, text.align_left)
     aRisk := box.new(bar_index, aE, bar_index + 1, aS, border_color = color.new(color.red, 0), bgcolor = color.new(color.red, 75), text = "Stop " + str.tostring(aS, format.mintick), text_color = color.white, text_size = lblSize)
+    box.set_text_valign(aRisk, text.align_bottom)
+    box.set_text_halign(aRisk, text.align_left)
     alert(syminfo.ticker + " CALLS TRIGGERED (" + pLname + ") at " + str.tostring(aE, format.mintick) + " - stop " + str.tostring(aS, format.mintick) + ", target " + str.tostring(aT, format.mintick) + ".", alert.freq_once_per_bar)
     line.delete(pLline)
     pLbar := na
@@ -200,7 +204,11 @@ if trigS
     aS    := pSstop
     aT    := aE - rrT * (aS - aE)
     aWin  := box.new(bar_index, aE, bar_index + 1, aT, border_color = color.new(color.green, 0), bgcolor = color.new(color.green, 75), text = "SHORT - " + pSname + "\nTarget " + str.tostring(aT, format.mintick), text_color = color.white, text_size = lblSize)
+    box.set_text_valign(aWin, text.align_bottom)
+    box.set_text_halign(aWin, text.align_left)
     aRisk := box.new(bar_index, aS, bar_index + 1, aE, border_color = color.new(color.red, 0), bgcolor = color.new(color.red, 75), text = "Stop " + str.tostring(aS, format.mintick), text_color = color.white, text_size = lblSize)
+    box.set_text_valign(aRisk, text.align_top)
+    box.set_text_halign(aRisk, text.align_left)
     alert(syminfo.ticker + " PUTS TRIGGERED (" + pSname + ") at " + str.tostring(aE, format.mintick) + " - stop " + str.tostring(aS, format.mintick) + ", target " + str.tostring(aT, format.mintick) + ".", alert.freq_once_per_bar)
     line.delete(pSline)
     pSbar := na
@@ -289,7 +297,11 @@ if dblBot
         aS    := lo1
         aT    := tgt
         aWin  := box.new(bar_index, aT, bar_index + 1, aE, border_color = color.new(color.green, 0), bgcolor = color.new(color.green, 75), text = "LONG - " + name + "\nTarget " + str.tostring(aT, format.mintick), text_color = color.white, text_size = lblSize)
+        box.set_text_valign(aWin, text.align_top)
+        box.set_text_halign(aWin, text.align_left)
         aRisk := box.new(bar_index, aE, bar_index + 1, aS, border_color = color.new(color.red, 0), bgcolor = color.new(color.red, 75), text = "Stop " + str.tostring(aS, format.mintick), text_color = color.white, text_size = lblSize)
+        box.set_text_valign(aRisk, text.align_bottom)
+        box.set_text_halign(aRisk, text.align_left)
     alert(syminfo.ticker + " has a " + name + " breakout on the " + timeframe.period + " chart. Neckline " + str.tostring(neckUp, format.mintick) + ", target " + str.tostring(tgt, format.mintick) + ".", alert.freq_once_per_bar_close)
     nBot := 0
 if dblTop
@@ -307,7 +319,11 @@ if dblTop
         aS    := hi1
         aT    := tgt
         aWin  := box.new(bar_index, aE, bar_index + 1, aT, border_color = color.new(color.green, 0), bgcolor = color.new(color.green, 75), text = "SHORT - " + name + "\nTarget " + str.tostring(aT, format.mintick), text_color = color.white, text_size = lblSize)
+        box.set_text_valign(aWin, text.align_bottom)
+        box.set_text_halign(aWin, text.align_left)
         aRisk := box.new(bar_index, aS, bar_index + 1, aE, border_color = color.new(color.red, 0), bgcolor = color.new(color.red, 75), text = "Stop " + str.tostring(aS, format.mintick), text_color = color.white, text_size = lblSize)
+        box.set_text_valign(aRisk, text.align_top)
+        box.set_text_halign(aRisk, text.align_left)
     alert(syminfo.ticker + " has a " + name + " breakdown on the " + timeframe.period + " chart. Neckline " + str.tostring(neckDn, format.mintick) + ", target " + str.tostring(tgt, format.mintick) + ".", alert.freq_once_per_bar_close)
     nTop := 0
 
