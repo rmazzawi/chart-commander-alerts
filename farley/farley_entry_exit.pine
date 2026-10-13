@@ -24,6 +24,9 @@ showBB   = input.bool(true, "Show Bollinger Bands + 20/50 MA", group = grpC)
 
 grpX = "Trade boxes"
 minRR     = input.float(1.5, "Min reward / risk (green must be at least this x red, else no trade)", minval = 1.0, step = 0.25, group = grpX)
+grpV = "BB Reversal (catch the turns) - TEST: ~36% wins, works best on AMD"
+useBBR  = input.bool(false, "BB Reversal signals (poke outside the band -> close back inside -> break)", group = grpV)
+bbrSess = input.session("0935-1530", "BB Reversal entry hours (New York)", group = grpV)
 showBoxes = input.bool(true, "Show long / short boxes (green = profit, red = failure)", group = grpX)
 showLines = input.bool(false, "Also draw the old profit / failure lines", group = grpX)
 lblSizeIn = input.string("large", "Label text size", options = ["tiny", "small", "normal", "large", "huge"], group = grpX)
@@ -107,6 +110,56 @@ if convLong
 if convShort
     drawTrade("Convergence Rejection (" + str.tostring(resHits) + " levels)", false, close, high + zone, swLo)
 
+// ───────── 3) BB Reversal: candle pokes outside the Bollinger Band, next candle closes back inside (colored the other way),
+// entry when price breaks that candle within 2 candles; stop past the 3-candle extreme; target = middle band (min reward/risk)
+bbrHours = not na(time(timeframe.period, bbrSess, "America/New_York"))
+var float rvS_trig = na
+var float rvS_stop = na
+var int   rvS_bar  = na
+var float rvL_trig = na
+var float rvL_stop = na
+var int   rvL_bar  = na
+bbrS = false
+bbrL = false
+float bbrE = na
+float bbrF = na
+float bbrP = na
+if useBBR and bbrHours
+    if not na(rvS_bar) and bar_index > rvS_bar and bar_index <= rvS_bar + 2 and low < rvS_trig
+        e = math.min(open, rvS_trig)
+        if (e - bbM) >= minRR * (rvS_stop - e) and rvS_stop > e
+            bbrS := true
+            bbrE := e
+            bbrF := rvS_stop
+            bbrP := bbM
+        rvS_bar := na
+    if not na(rvL_bar) and bar_index > rvL_bar and bar_index <= rvL_bar + 2 and high > rvL_trig and not bbrS
+        e = math.max(open, rvL_trig)
+        if (bbM - e) >= minRR * (e - rvL_stop) and rvL_stop < e
+            bbrL := true
+            bbrE := e
+            bbrF := rvL_stop
+            bbrP := bbM
+        rvL_bar := na
+    if barstate.isconfirmed and high[1] > bbU[1] and close < bbU and close < open
+        rvS_trig := low
+        rvS_stop := math.max(high, high[1], high[2]) + 0.1 * atr
+        rvS_bar  := bar_index
+    if barstate.isconfirmed and low[1] < bbL[1] and close > bbL and close > open
+        rvL_trig := high
+        rvL_stop := math.min(low, low[1], low[2]) - 0.1 * atr
+        rvL_bar  := bar_index
+if not na(rvS_bar) and bar_index > rvS_bar + 2
+    rvS_bar := na
+if not na(rvL_bar) and bar_index > rvL_bar + 2
+    rvL_bar := na
+if bbrS
+    label.new(bar_index, high, "BB Reversal", yloc = yloc.abovebar, style = label.style_label_down, color = color.new(color.red, 10), textcolor = color.white, size = lblSize)
+    alert(syminfo.ticker + " BB Reversal PUTS on the " + timeframe.period + " chart. Entry " + str.tostring(bbrE, format.mintick) + ", stop " + str.tostring(bbrF, format.mintick) + ", target " + str.tostring(bbrP, format.mintick) + ".", alert.freq_once_per_bar)
+if bbrL
+    label.new(bar_index, low, "BB Reversal", yloc = yloc.belowbar, style = label.style_label_up, color = color.new(color.green, 10), textcolor = color.white, size = lblSize)
+    alert(syminfo.ticker + " BB Reversal CALLS on the " + timeframe.period + " chart. Entry " + str.tostring(bbrE, format.mintick) + ", stop " + str.tostring(bbrF, format.mintick) + ", target " + str.tostring(bbrP, format.mintick) + ".", alert.freq_once_per_bar)
+
 // ───────── Trade boxes (no text): green = entry -> profit target, red = entry -> failure target ─────────
 var int   tDir  = 0
 var int   tBar  = na
@@ -126,14 +179,15 @@ if tDir != 0
         if bar_index > tBar and (tDir == 1 ? (low <= tF or high >= tP) : (high >= tF or low <= tP))
             tDir := 0
 // open a new box on a signal (a new signal replaces the old box)
-nDir = boUp or convLong ? 1 : boDn or convShort ? -1 : 0
+nDir = boUp or convLong ? 1 : boDn or convShort ? -1 : bbrL ? 1 : bbrS ? -1 : 0
+nE = bbrL or bbrS ? bbrE : close
 if showBoxes and nDir != 0
-    nF = boUp ? boFailL : boDn ? boFailS : convLong ? low - zone : high + zone
-    nP = boUp ? boProfL : boDn ? boProfS : convLong ? swHi : swLo
-    if (nP - close) * nDir > 0 and (close - nF) * nDir > 0
+    nF = boUp ? boFailL : boDn ? boFailS : convLong ? low - zone : convShort ? high + zone : bbrF
+    nP = boUp ? boProfL : boDn ? boProfS : convLong ? swHi : convShort ? swLo : bbrP
+    if (nP - nE) * nDir > 0 and (nE - nF) * nDir > 0
         tDir := nDir
         tBar := bar_index
-        tE   := close
+        tE   := nE
         tF   := nF
         tP   := nP
         bWin  := box.new(bar_index, math.max(tE, tP), bar_index + 1, math.min(tE, tP), border_color = color.new(color.green, 0), bgcolor = color.new(color.green, 75))
