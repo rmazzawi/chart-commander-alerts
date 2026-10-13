@@ -11,18 +11,19 @@ needConfirm = input.bool(true, "Only signal when next candle confirms (book: 'pr
 showIndec   = input.bool(false, "Show Doji / Spinning Top (indecision)", group = grpC)
 
 grpP = "Chart patterns"
-showDT  = input.bool(true, "Double / Triple Top & Bottom", group = grpP)
-pivLen  = input.int(5, "Swing strength (bars each side)", minval = 2, group = grpP)
-eqTol   = input.float(1.0, "Equal highs/lows tolerance (%)", step = 0.1, group = grpP)
+showDT  = input.bool(false, "Double / Triple Top & Bottom", group = grpP)
+pivLen  = input.int(8, "Swing strength (bars each side)", minval = 2, group = grpP)
+eqTol   = input.float(0.15, "Equal highs/lows tolerance (%)", step = 0.05, group = grpP)
 
 grpF = "Confirmation filters"
-minScore  = input.int(2, "Min confirmations (0-4) to show a signal", minval = 0, maxval = 4, group = grpF)
+minScore  = input.int(3, "Min confirmations (0-4) to show a signal", minval = 0, maxval = 4, group = grpF)
 showPiv   = input.bool(true, "Show daily pivot points (P, R1, R2, S1, S2)", group = grpF)
 showVWAP  = input.bool(true, "Show VWAP (intraday)", group = grpF)
 showSMA   = input.bool(true, "Show 50 / 200 SMA", group = grpF)
 
 grpL = "Labels"
 lblSizeIn = input.string("large", "Label text size", options = ["tiny", "small", "normal", "large", "huge"], group = grpL)
+showAllLbl = input.bool(false, "Show every confirmed pattern label (off = only patterns that triggered a trade)", group = grpL)
 lblGap = input.float(1.0, "Label distance from the candle (x ATR, 0 = touching)", minval = 0, step = 0.25, group = grpL)
 grpB = "Entry boxes (show the trade when the move starts)"
 showBoxes  = input.bool(true, "Show long / short boxes when price breaks the pattern", group = grpB)
@@ -30,7 +31,14 @@ watchAlert = input.bool(true, "WATCH alert when the pattern candle closes (gives
 rrT        = input.float(2.0, "Target (x risk)", minval = 0.5, step = 0.5, group = grpB)
 trigBars   = input.int(2, "Cancel if price does not break within N candles", minval = 1, maxval = 10, group = grpB)
 boxDT      = input.bool(true, "Also show boxes for double / triple top & bottom breaks", group = grpB)
+replMin    = input.int(30, "A new signal may replace an open box after N minutes", minval = 0, group = grpB)
+grpT = "Trading hours (New York)"
+rthSess   = input.session("0930-1600", "Regular hours - nothing outside this", group = grpT)
+entrySess = input.session("0930-1545", "New entries only in", group = grpT)
 lblSize = lblSizeIn == "tiny" ? size.tiny : lblSizeIn == "small" ? size.small : lblSizeIn == "normal" ? size.normal : lblSizeIn == "huge" ? size.huge : size.large
+
+inRTH   = not na(time(timeframe.period, rthSess, "America/New_York"))
+inEntry = not na(time(timeframe.period, entrySess, "America/New_York")) or not timeframe.isintraday
 
 // ───────── Indicators from chapter 2 ─────────
 sma50  = ta.sma(close, 50)
@@ -103,15 +111,17 @@ bearSig = needConfirm ? (bearPat[1] and close < low[1])  : bearPat
 bullTxt = needConfirm ? bullName[1] : bullName
 bearTxt = needConfirm ? bearName[1] : bearName
 
-bullSig := showCandles and bullSig and bullScore >= minScore
-bearSig := showCandles and bearSig and bearScore >= minScore
+bullSig := showCandles and bullSig and bullScore >= minScore and inEntry
+bearSig := showCandles and bearSig and bearScore >= minScore and inEntry
 
 lblX = needConfirm ? bar_index - 1 : bar_index
-if bullSig
+if bullSig and showAllLbl
     label.new(lblX, (needConfirm ? low[1] : low) - lblGap * atr, bullTxt + "\n" + str.tostring(bullScore) + "/4", style = label.style_label_up, yloc = yloc.price, color = color.new(color.green, 10), textcolor = color.white, size = lblSize)
+if bullSig
     alert(syminfo.ticker + " shows a " + bullTxt + " candle on the " + timeframe.period + " chart (bullish, " + str.tostring(bullScore) + "/4 confirmations).", alert.freq_once_per_bar_close)
-if bearSig
+if bearSig and showAllLbl
     label.new(lblX, (needConfirm ? high[1] : high) + lblGap * atr, bearTxt + "\n" + str.tostring(bearScore) + "/4", style = label.style_label_down, yloc = yloc.price, color = color.new(color.red, 10), textcolor = color.white, size = lblSize)
+if bearSig
     alert(syminfo.ticker + " shows a " + bearTxt + " candle on the " + timeframe.period + " chart (bearish, " + str.tostring(bearScore) + "/4 confirmations).", alert.freq_once_per_bar_close)
 
 // ───────── Entry boxes: WATCH at pattern close -> box when price breaks the pattern candle ─────────
@@ -127,6 +137,7 @@ var string pSname = ""
 var line  pSline = na
 var int   aDir  = 0
 var int   aBar  = na
+var int   aTime = na
 var float aE    = na
 var float aS    = na
 var float aT    = na
@@ -146,11 +157,29 @@ if aDir != 0
             alert(syminfo.ticker + " " + (aDir == 1 ? "CALLS" : "PUTS") + " trade: " + res + " at " + str.tostring(hitS ? aS : aT, format.mintick) + ".", alert.freq_once_per_bar)
             aDir := 0
 
+// 1b) 4:00 PM: close any open box, cancel waiting setups
+newDayNY = dayofmonth(time, "America/New_York") != dayofmonth(time[1], "America/New_York")
+if aDir != 0 and timeframe.isintraday and (not inRTH or newDayNY)
+    box.set_text(aRisk, "CLOSED 4PM")
+    alert(syminfo.ticker + " " + (aDir == 1 ? "CALLS" : "PUTS") + " trade closed at 4 PM (" + str.tostring(close, format.mintick) + ").", alert.freq_once_per_bar)
+    aDir := 0
+if timeframe.isintraday and (not inEntry or newDayNY)
+    line.delete(pLline)
+    line.delete(pSline)
+    pLbar := na
+    pSbar := na
+
 // 2) pending setups: open the box the moment price breaks the trigger
-trigL = showBoxes and aDir == 0 and not na(pLbar) and bar_index > pLbar and bar_index <= pLbar + trigBars and high >= pLtrig
-trigS = showBoxes and aDir == 0 and not na(pSbar) and bar_index > pSbar and bar_index <= pSbar + trigBars and low <= pStrig and not trigL
+canL = aDir == 0 or aDir == -1 or (time - aTime) >= replMin * 60000
+canS = aDir == 0 or aDir == 1 or (time - aTime) >= replMin * 60000
+trigL = showBoxes and inEntry and canL and not na(pLbar) and bar_index > pLbar and bar_index <= pLbar + trigBars and high >= pLtrig
+trigS = showBoxes and inEntry and canS and not na(pSbar) and bar_index > pSbar and bar_index <= pSbar + trigBars and low <= pStrig and not trigL
 if trigL
+    if aDir != 0
+        box.set_text(aRisk, "REPLACED")
+    label.new(pLbar, low[bar_index - pLbar] - lblGap * atr, pLname, style = label.style_label_up, yloc = yloc.price, color = color.new(color.green, 10), textcolor = color.white, size = lblSize)
     aDir  := 1
+    aTime := time
     aBar  := bar_index
     aE    := math.max(open, pLtrig)
     aS    := pLstop
@@ -161,7 +190,11 @@ if trigL
     line.delete(pLline)
     pLbar := na
 if trigS
+    if aDir != 0
+        box.set_text(aRisk, "REPLACED")
+    label.new(pSbar, high[bar_index - pSbar] + lblGap * atr, pSname, style = label.style_label_down, yloc = yloc.price, color = color.new(color.red, 10), textcolor = color.white, size = lblSize)
     aDir  := -1
+    aTime := time
     aBar  := bar_index
     aE    := math.min(open, pStrig)
     aS    := pSstop
@@ -181,7 +214,7 @@ if not na(pSbar) and bar_index >= pSbar + trigBars and barstate.isconfirmed
     pSbar := na
 
 // 4) new pattern candle closed -> WATCH: dotted trigger line + alert with the exact prices
-if showBoxes and showCandles and barstate.isconfirmed and bullPat and bullScore >= minScore
+if showBoxes and showCandles and inEntry and barstate.isconfirmed and bullPat and bullScore >= minScore
     line.delete(pLline)
     pLtrig := high
     pLstop := low - 0.1 * atr
@@ -190,7 +223,7 @@ if showBoxes and showCandles and barstate.isconfirmed and bullPat and bullScore 
     pLline := line.new(bar_index, pLtrig, bar_index + trigBars, pLtrig, color = color.new(color.green, 0), style = line.style_dotted, width = 2)
     if watchAlert
         alert(syminfo.ticker + " WATCH: " + bullName + " (" + str.tostring(bullScore) + "/4) on the " + timeframe.period + " chart - CALLS if price breaks " + str.tostring(pLtrig, format.mintick) + ", stop " + str.tostring(pLstop, format.mintick) + ".", alert.freq_once_per_bar_close)
-if showBoxes and showCandles and barstate.isconfirmed and bearPat and bearScore >= minScore
+if showBoxes and showCandles and inEntry and barstate.isconfirmed and bearPat and bearScore >= minScore
     line.delete(pSline)
     pStrig := low
     pSstop := high + 0.1 * atr
@@ -238,16 +271,19 @@ if not na(pl)
         nBot := 1
     neckUp := lastPH
 
-dblBot = showDT and nBot >= 2 and not na(neckUp) and ta.crossover(close, neckUp)
-dblTop = showDT and nTop >= 2 and not na(neckDn) and ta.crossunder(close, neckDn)
+dblBot = showDT and inEntry and nBot >= 2 and not na(neckUp) and ta.crossover(close, neckUp)
+dblTop = showDT and inEntry and nTop >= 2 and not na(neckDn) and ta.crossunder(close, neckDn)
 
 if dblBot
     name = nBot >= 3 ? "Triple Bottom" : "Double Bottom"
-    tgt = neckUp + (neckUp - lo1)
+    tgt = close + rrT * (close - lo1)
     label.new(bar_index, low - lblGap * atr, name + " break\nStop " + str.tostring(lo1, format.mintick) + "\nTarget " + str.tostring(tgt, format.mintick), style = label.style_label_up, yloc = yloc.price, color = color.new(color.teal, 0), textcolor = color.white, size = lblSize)
     line.new(bar_index, neckUp, bar_index + 20, neckUp, color = color.teal, style = line.style_dashed)
-    if showBoxes and boxDT and aDir == 0 and close > lo1
+    if showBoxes and boxDT and (aDir == 0 or aDir == -1 or (time - aTime) >= replMin * 60000) and close > lo1
+        if aDir != 0
+            box.set_text(aRisk, "REPLACED")
         aDir  := 1
+        aTime := time
         aBar  := bar_index
         aE    := close
         aS    := lo1
@@ -258,11 +294,14 @@ if dblBot
     nBot := 0
 if dblTop
     name = nTop >= 3 ? "Triple Top" : "Double Top"
-    tgt = neckDn - (hi1 - neckDn)
+    tgt = close - rrT * (hi1 - close)
     label.new(bar_index, high + lblGap * atr, name + " break\nStop " + str.tostring(hi1, format.mintick) + "\nTarget " + str.tostring(tgt, format.mintick), style = label.style_label_down, yloc = yloc.price, color = color.new(color.maroon, 0), textcolor = color.white, size = lblSize)
     line.new(bar_index, neckDn, bar_index + 20, neckDn, color = color.maroon, style = line.style_dashed)
-    if showBoxes and boxDT and aDir == 0 and close < hi1
+    if showBoxes and boxDT and (aDir == 0 or aDir == 1 or (time - aTime) >= replMin * 60000) and close < hi1
+        if aDir != 0
+            box.set_text(aRisk, "REPLACED")
         aDir  := -1
+        aTime := time
         aBar  := bar_index
         aE    := close
         aS    := hi1
