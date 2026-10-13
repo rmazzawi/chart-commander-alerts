@@ -28,6 +28,10 @@ grpV = "BB Reversal (catch the turns) - TEST: ~36% wins, works best on AMD"
 useBBR  = input.bool(false, "BB Reversal signals (poke outside the band -> close back inside -> break)", group = grpV)
 bbrTks  = input.string("AMD", "BB Reversal only on these tickers (comma list, empty = all)", group = grpV)
 bbrSess = input.session("0935-1530", "BB Reversal entry hours (New York)", group = grpV)
+grpD = "Day High / Low Reversal to VWAP - TEST: ~33% wins, +0.07R after costs, calls at day low better"
+useDR  = input.bool(true, "Day High/Low Reversal signals (no new high/low for N candles -> reverse to VWAP)", group = grpD)
+drBars = input.int(6, "Candles without a new high / low", minval = 2, maxval = 20, group = grpD)
+drSess = input.session("1030-1545", "Day Reversal entry hours (New York)", group = grpD)
 showBoxes = input.bool(true, "Show long / short boxes (green = profit, red = failure)", group = grpX)
 showLines = input.bool(false, "Also draw the old profit / failure lines", group = grpX)
 lblSizeIn = input.string("large", "Label text size", options = ["tiny", "small", "normal", "large", "huge"], group = grpX)
@@ -162,6 +166,62 @@ if bbrL
     label.new(bar_index, low - lblGap * atr, "BB Reversal", yloc = yloc.price, style = label.style_label_up, color = color.new(color.green, 10), textcolor = color.white, size = lblSize)
     alert(syminfo.ticker + " BB Reversal CALLS on the " + timeframe.period + " chart. Entry " + str.tostring(bbrE, format.mintick) + ", stop " + str.tostring(bbrF, format.mintick) + ", target " + str.tostring(bbrP, format.mintick) + ".", alert.freq_once_per_bar)
 
+newDayD = dayofmonth(time, "America/New_York") != dayofmonth(time[1], "America/New_York")
+// ───────── 4) Day High / Low Reversal: day high (low) not exceeded for N candles -> puts (calls) back to VWAP
+// stop just past the day high (low); skip if VWAP is less than minRR x the stop away
+dVW = ta.vwap(hlc3)
+inRTHd = not na(time(timeframe.period, "0930-1600", "America/New_York"))
+firstD = inRTHd and (not inRTHd[1] or newDayD)
+inDR = not na(time(timeframe.period, drSess, "America/New_York"))
+var float dHi = na
+var float dLo = na
+var int   kH  = na
+var int   kL  = na
+var bool  uH  = true
+var bool  uL  = true
+drS = false
+drL = false
+float drE = na
+float drF = na
+float drP = na
+if inRTHd
+    if firstD
+        dHi := high
+        dLo := low
+        kH := bar_index
+        kL := bar_index
+        uH := false
+        uL := false
+    else
+        if high > dHi
+            dHi := high
+            kH := bar_index
+            uH := false
+        if low < dLo
+            dLo := low
+            kL := bar_index
+            uL := false
+        if useDR and inDR and not uH and bar_index - kH == drBars
+            uH := true
+            if (close - dVW) >= minRR * (dHi + 0.1 * atr - close) and dHi + 0.1 * atr > close
+                drS := true
+                drE := close
+                drF := dHi + 0.1 * atr
+                drP := dVW
+        if useDR and inDR and not uL and bar_index - kL == drBars and not drS
+            uL := true
+            if (dVW - close) >= minRR * (close - (dLo - 0.1 * atr)) and dLo - 0.1 * atr < close
+                drL := true
+                drE := close
+                drF := dLo - 0.1 * atr
+                drP := dVW
+if drS
+    label.new(bar_index, high + lblGap * atr, "Day High Rev", yloc = yloc.price, style = label.style_label_down, color = color.new(color.red, 10), textcolor = color.white, size = lblSize)
+    alert(syminfo.ticker + " Day High Reversal PUTS on the " + timeframe.period + " chart. Entry " + str.tostring(drE, format.mintick) + ", stop " + str.tostring(drF, format.mintick) + ", target VWAP " + str.tostring(drP, format.mintick) + ".", alert.freq_once_per_bar_close)
+if drL
+    label.new(bar_index, low - lblGap * atr, "Day Low Rev", yloc = yloc.price, style = label.style_label_up, color = color.new(color.green, 10), textcolor = color.white, size = lblSize)
+    alert(syminfo.ticker + " Day Low Reversal CALLS on the " + timeframe.period + " chart. Entry " + str.tostring(drE, format.mintick) + ", stop " + str.tostring(drF, format.mintick) + ", target VWAP " + str.tostring(drP, format.mintick) + ".", alert.freq_once_per_bar_close)
+
 // ───────── Trade boxes (no text): green = entry -> profit target, red = entry -> failure target ─────────
 var int   tDir  = 0
 var int   tBar  = na
@@ -181,11 +241,11 @@ if tDir != 0
         if bar_index > tBar and (tDir == 1 ? (low <= tF or high >= tP) : (high >= tF or low <= tP))
             tDir := 0
 // open a new box on a signal (a new signal replaces the old box)
-nDir = boUp or convLong ? 1 : boDn or convShort ? -1 : bbrL ? 1 : bbrS ? -1 : 0
+nDir = boUp or convLong ? 1 : boDn or convShort ? -1 : bbrL ? 1 : bbrS ? -1 : drL ? 1 : drS ? -1 : 0
 nE = bbrL or bbrS ? bbrE : close
 if showBoxes and nDir != 0
-    nF = boUp ? boFailL : boDn ? boFailS : convLong ? low - zone : convShort ? high + zone : bbrF
-    nP = boUp ? boProfL : boDn ? boProfS : convLong ? swHi : convShort ? swLo : bbrP
+    nF = boUp ? boFailL : boDn ? boFailS : convLong ? low - zone : convShort ? high + zone : bbrL or bbrS ? bbrF : drF
+    nP = boUp ? boProfL : boDn ? boProfS : convLong ? swHi : convShort ? swLo : bbrL or bbrS ? bbrP : drP
     if (nP - nE) * nDir > 0 and (nE - nF) * nDir > 0
         tDir := nDir
         tBar := bar_index
@@ -208,3 +268,5 @@ alertcondition(boUp, "Farley Range Breakout", "{{ticker}} range breakout on {{in
 alertcondition(boDn, "Farley Range Breakdown", "{{ticker}} range breakdown on {{interval}}")
 alertcondition(convLong, "Farley Convergence Long", "{{ticker}} convergence bounce on {{interval}}")
 alertcondition(convShort, "Farley Convergence Short", "{{ticker}} convergence rejection on {{interval}}")
+alertcondition(drL, "Farley Day Low Reversal", "{{ticker}} day low reversal (calls) on {{interval}}")
+alertcondition(drS, "Farley Day High Reversal", "{{ticker}} day high reversal (puts) on {{interval}}")
