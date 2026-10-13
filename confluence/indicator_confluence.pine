@@ -1,0 +1,105 @@
+// Book 5: "Technical Analysis Indicators" - ChartPatternTrading.com (35 indicators)
+// Each indicator casts a bullish / bearish vote using the book's "Generally Accepted Use" rule.
+// Signal = enough votes agree AND ADX says a trend exists (book: ADX < 20 = weak trend).
+// Stop = Parabolic SAR (book: SAR dots are the trailing stop). Dashboard shows every vote.
+//@version=5
+indicator("Indicator Confluence (10 votes)", overlay = true, max_labels_count = 500)
+
+minVotes = input.int(7, "Votes needed for a signal (out of 10)", minval = 5, maxval = 10)
+adxMin   = input.int(20, "Min ADX (trend strength)")
+showDash = input.bool(true, "Show dashboard")
+dashSizeIn = input.string("large", "Dashboard text size", options = ["tiny", "small", "normal", "large", "huge"])
+showSAR  = input.bool(true, "Show Parabolic SAR (stop)")
+showKC   = input.bool(false, "Show Keltner Channels")
+dashSize = dashSizeIn == "tiny" ? size.tiny : dashSizeIn == "small" ? size.small : dashSizeIn == "normal" ? size.normal : dashSizeIn == "huge" ? size.huge : size.large
+
+// 1) ADX / DMI: +DI above -DI = bullish (only counted when ADX >= adxMin)
+[diP, diM, adx] = ta.dmi(14, 14)
+v1 = diP > diM ? 1 : -1
+// 2) Aroon: up > 70 bullish, down > 70 bearish
+aLen = 14
+aUp = 100 * (aLen + ta.highestbars(high, aLen + 1)) / aLen
+aDn = 100 * (aLen + ta.lowestbars(low, aLen + 1)) / aLen
+v2 = aUp > 70 and aUp > aDn ? 1 : aDn > 70 and aDn > aUp ? -1 : 0
+// 3) MACD line vs signal line
+[macdL, sigL, hist] = ta.macd(close, 12, 26, 9)
+v3 = macdL > sigL ? 1 : -1
+// 4) MACD zero line
+v4 = macdL > 0 ? 1 : -1
+// 5) RSI above / below 50
+rsi = ta.rsi(close, 14)
+v5 = rsi > 50 ? 1 : -1
+// 6) Chaikin Money Flow (20) above / below zero
+mfm = high != low ? ((close - low) - (high - close)) / (high - low) : 0
+cmf = math.sum(mfm * volume, 20) / math.sum(volume, 20)
+v6 = cmf > 0 ? 1 : -1
+// 7) Force Index (13 EMA) above / below zero
+fi = ta.ema(ta.change(close) * volume, 13)
+v7 = fi > 0 ? 1 : -1
+// 8) TRIX (18) vs its 9-period signal
+trix = 10000 * ta.change(math.log(ta.ema(ta.ema(ta.ema(close, 18), 18), 18)))
+trixSig = ta.ema(trix, 9)
+v8 = trix > trixSig ? 1 : -1
+// 9) On Balance Volume vs its 20 EMA (rising / falling OBV)
+obv = ta.obv
+v9 = obv > ta.ema(obv, 20) ? 1 : -1
+// 10) Price vs 20 EMA (book: stay above/below the EMA slope)
+ema20 = ta.ema(close, 20)
+v10 = close > ema20 and ema20 > ema20[1] ? 1 : close < ema20 and ema20 < ema20[1] ? -1 : 0
+
+bullVotes = (v1 > 0 ? 1 : 0) + (v2 > 0 ? 1 : 0) + (v3 > 0 ? 1 : 0) + (v4 > 0 ? 1 : 0) + (v5 > 0 ? 1 : 0) + (v6 > 0 ? 1 : 0) + (v7 > 0 ? 1 : 0) + (v8 > 0 ? 1 : 0) + (v9 > 0 ? 1 : 0) + (v10 > 0 ? 1 : 0)
+bearVotes = (v1 < 0 ? 1 : 0) + (v2 < 0 ? 1 : 0) + (v3 < 0 ? 1 : 0) + (v4 < 0 ? 1 : 0) + (v5 < 0 ? 1 : 0) + (v6 < 0 ? 1 : 0) + (v7 < 0 ? 1 : 0) + (v8 < 0 ? 1 : 0) + (v9 < 0 ? 1 : 0) + (v10 < 0 ? 1 : 0)
+
+trending = adx >= adxMin
+sar = ta.sar(0.02, 0.02, 0.2)
+plot(showSAR ? sar : na, "Parabolic SAR", color = sar < close ? color.green : color.red, style = plot.style_cross, linewidth = 1)
+
+// Keltner (20 EMA +/- 2 x ATR10) - breakout in trend direction is an extra highlight
+kcU = ema20 + 2 * ta.atr(10)
+kcL = ema20 - 2 * ta.atr(10)
+plot(showKC ? kcU : na, "KC upper", color.new(color.gray, 40))
+plot(showKC ? kcL : na, "KC lower", color.new(color.gray, 40))
+
+// Signal fires when the vote count first reaches the threshold (no repeats while it stays there)
+longOK  = trending and bullVotes >= minVotes and sar < close
+shortOK = trending and bearVotes >= minVotes and sar > close
+longSig  = longOK and not longOK[1]
+shortSig = shortOK and not shortOK[1]
+kcBreak = close > kcU or close < kcL
+
+if longSig
+    label.new(bar_index, low, "BUY " + str.tostring(bullVotes) + "/10" + (close > kcU ? "\nKeltner break" : "") + "\nStop (SAR) " + str.tostring(sar, format.mintick), yloc = yloc.belowbar, style = label.style_label_up, color = color.new(color.green, 10), textcolor = color.white, size = size.small)
+    alert(syminfo.ticker + " has a bullish indicator confluence (" + str.tostring(bullVotes) + "/10, ADX " + str.tostring(adx, "#") + ") on the " + timeframe.period + " chart. Stop " + str.tostring(sar, format.mintick) + ".", alert.freq_once_per_bar_close)
+if shortSig
+    label.new(bar_index, high, "SELL " + str.tostring(bearVotes) + "/10" + (close < kcL ? "\nKeltner break" : "") + "\nStop (SAR) " + str.tostring(sar, format.mintick), yloc = yloc.abovebar, style = label.style_label_down, color = color.new(color.red, 10), textcolor = color.white, size = size.small)
+    alert(syminfo.ticker + " has a bearish indicator confluence (" + str.tostring(bearVotes) + "/10, ADX " + str.tostring(adx, "#") + ") on the " + timeframe.period + " chart. Stop " + str.tostring(sar, format.mintick) + ".", alert.freq_once_per_bar_close)
+
+// Exit hint: SAR flips against the trade
+plotshape(ta.cross(close, sar), "SAR flip (exit)", shape.xcross, location.abovebar, color.new(color.orange, 0), size = size.tiny)
+
+// ───────── Dashboard ─────────
+var table t = table.new(position.top_right, 2, 13, border_width = 1)
+cell(r, name, v) =>
+    table.cell(t, 0, r, name, text_color = color.white, bgcolor = color.new(color.black, 20), text_size = dashSize)
+    table.cell(t, 1, r, v > 0 ? "BULL" : v < 0 ? "BEAR" : "-", text_color = color.white, bgcolor = v > 0 ? color.new(color.green, 20) : v < 0 ? color.new(color.red, 20) : color.new(color.gray, 30), text_size = dashSize)
+
+if showDash and barstate.islast
+    cell(0, "DMI +DI/-DI", v1)
+    cell(1, "Aroon", v2)
+    cell(2, "MACD x Signal", v3)
+    cell(3, "MACD zero", v4)
+    cell(4, "RSI 50", v5)
+    cell(5, "Chaikin MF", v6)
+    cell(6, "Force Index", v7)
+    cell(7, "TRIX", v8)
+    cell(8, "OBV", v9)
+    cell(9, "20 EMA", v10)
+    table.cell(t, 0, 10, "ADX " + str.tostring(adx, "#.0"), text_color = color.white, bgcolor = color.new(color.black, 20), text_size = dashSize)
+    table.cell(t, 1, 10, trending ? "TREND" : "RANGE", text_color = color.white, bgcolor = trending ? color.new(color.blue, 20) : color.new(color.gray, 30), text_size = dashSize)
+    table.cell(t, 0, 11, "Bull / Bear votes", text_color = color.white, bgcolor = color.new(color.black, 20), text_size = dashSize)
+    table.cell(t, 1, 11, str.tostring(bullVotes) + " / " + str.tostring(bearVotes), text_color = color.white, bgcolor = color.new(color.black, 20), text_size = dashSize)
+    table.cell(t, 0, 12, "Keltner break", text_color = color.white, bgcolor = color.new(color.black, 20), text_size = dashSize)
+    table.cell(t, 1, 12, kcBreak ? "YES" : "no", text_color = color.white, bgcolor = color.new(color.black, 20), text_size = dashSize)
+
+alertcondition(longSig, "Confluence BUY", "{{ticker}} bullish indicator confluence on {{interval}}")
+alertcondition(shortSig, "Confluence SELL", "{{ticker}} bearish indicator confluence on {{interval}}")
