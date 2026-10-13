@@ -1,0 +1,142 @@
+// Book 6: Alan Farley - "Targeting Profitable Entry & Exit Points" (Hard Right Edge)
+// Ideas from the slides:
+//  * Markets cycle: RANGE (box) -> TREND (breakout) -> RANGE ... trade the break out of the box
+//  * Convergence: when several S/R tools stack at one price (Fib 38/50/62, whole numbers, moving averages,
+//    Bollinger Bands, gaps) that zone is the EXECUTION ZONE
+//  * Every trade has a PROFIT TARGET (next level) and a FAILURE TARGET (stop just past the zone)
+//@version=5
+indicator("Farley Convergence & Range Break", overlay = true, max_boxes_count = 500, max_lines_count = 500, max_labels_count = 500)
+
+grpR = "Range -> Trend breakout"
+useRange = input.bool(true, "Range breakout signals", group = grpR)
+boxLen   = input.int(20, "Range length (bars)", minval = 5, group = grpR)
+boxATR   = input.float(3.0, "Max range height (x ATR)", step = 0.5, group = grpR)
+volMult  = input.float(1.5, "Breakout volume vs average (x)", step = 0.1, group = grpR)
+
+grpC = "Convergence zone"
+useConv  = input.bool(true, "Convergence bounce/rejection signals", group = grpC)
+swingLen = input.int(50, "Swing for Fibonacci grid (bars)", group = grpC)
+zoneATR  = input.float(0.5, "Zone width (x ATR)", step = 0.1, group = grpC)
+minHits  = input.int(3, "Min levels stacked in zone", minval = 2, maxval = 6, group = grpC)
+roundStep = input.float(0, "Whole-number step ($, 0 = auto)", group = grpC)
+showFib  = input.bool(true, "Draw Fibonacci grid", group = grpC)
+showBB   = input.bool(true, "Show Bollinger Bands + 20/50 MA", group = grpC)
+
+grpX = "Trade boxes"
+showBoxes = input.bool(true, "Show long / short boxes (green = profit, red = failure)", group = grpX)
+showLines = input.bool(false, "Also draw the old profit / failure lines", group = grpX)
+
+atr = ta.atr(14)
+ma20 = ta.sma(close, 20)
+ma50 = ta.sma(close, 50)
+[bbM, bbU, bbL] = ta.bb(close, 20, 2)
+plot(showBB ? ma20 : na, "20 MA", color.new(color.teal, 20))
+plot(showBB ? ma50 : na, "50 MA", color.new(color.blue, 20))
+plot(showBB ? bbU : na, "BB upper", color.new(color.red, 50))
+plot(showBB ? bbL : na, "BB lower", color.new(color.red, 50))
+
+// ───────── 1) Range -> Trend ─────────
+rHi = ta.highest(high, boxLen)[1]
+rLo = ta.lowest(low, boxLen)[1]
+isRange = (rHi - rLo) <= boxATR * atr
+volOK = volume > ta.sma(volume, 20) * volMult
+boUp = useRange and isRange and close > rHi and close[1] <= rHi and volOK
+boDn = useRange and isRange and close < rLo and close[1] >= rLo and volOK
+
+drawTrade(string name, bool isLong, float entry, float fail, float profit) =>
+    if showLines
+        line.new(bar_index, fail, bar_index + 15, fail, color = color.red, width = 2)
+        line.new(bar_index, profit, bar_index + 15, profit, color = color.green, width = 2, style = line.style_dashed)
+    txt = name + "\nProfit tgt " + str.tostring(profit, format.mintick) + "\nFailure tgt " + str.tostring(fail, format.mintick)
+    label.new(bar_index, isLong ? low : high, txt, yloc = isLong ? yloc.belowbar : yloc.abovebar, style = isLong ? label.style_label_up : label.style_label_down, color = isLong ? color.new(color.green, 10) : color.new(color.red, 10), textcolor = color.white, size = size.small)
+    alert(syminfo.ticker + " has a Farley " + name + " on the " + timeframe.period + " chart. Entry " + str.tostring(entry, format.mintick) + ", profit target " + str.tostring(profit, format.mintick) + ", failure target " + str.tostring(fail, format.mintick) + ".", alert.freq_once_per_bar_close)
+
+if boUp
+    box.new(bar_index - boxLen, rHi, bar_index - 1, rLo, border_color = color.gray, bgcolor = color.new(color.gray, 85))
+    // failure target: back inside the box (mid-range); profit target: measured move = box height
+    drawTrade("Range Breakout", true, close, (rHi + rLo) / 2, rHi + (rHi - rLo))
+if boDn
+    box.new(bar_index - boxLen, rHi, bar_index - 1, rLo, border_color = color.gray, bgcolor = color.new(color.gray, 85))
+    drawTrade("Range Breakdown", false, close, (rHi + rLo) / 2, rLo - (rHi - rLo))
+
+// ───────── 2) Convergence zones ─────────
+swHi = ta.highest(high, swingLen)
+swLo = ta.lowest(low, swingLen)
+upLeg = ta.highestbars(high, swingLen) > ta.lowestbars(low, swingLen)   // high is more recent than low -> pullback from up leg
+f38 = upLeg ? swHi - (swHi - swLo) * 0.382 : swLo + (swHi - swLo) * 0.382
+f50 = (swHi + swLo) / 2
+f62 = upLeg ? swHi - (swHi - swLo) * 0.618 : swLo + (swHi - swLo) * 0.618
+
+step = roundStep > 0 ? roundStep : close < 10 ? 0.5 : close < 50 ? 1 : close < 200 ? 5 : 10
+roundLvl = math.round(close / step) * step
+
+// gap level: most recent unfilled-ish gap edge
+var float gapLvl = na
+if low > high[1]
+    gapLvl := high[1]
+if high < low[1]
+    gapLvl := low[1]
+
+zone = zoneATR * atr
+hit(lvl, p) => not na(lvl) and math.abs(lvl - p) <= zone ? 1 : 0
+hits(p) => hit(f38, p) + hit(f50, p) + hit(f62, p) + hit(roundLvl, p) + hit(ma20, p) + hit(ma50, p) + hit(bbL, p) + hit(bbU, p) + hit(gapLvl, p)
+
+supHits = hits(low)
+resHits = hits(high)
+
+// Execution: candle tests the stacked zone and closes back out of it (reversal at the zone), in the direction of the bigger leg
+convLong  = useConv and upLeg and supHits >= minHits and close > open and close > low + (high - low) * 0.5
+convShort = useConv and not upLeg and resHits >= minHits and close < open and close < high - (high - low) * 0.5
+convLong  := convLong and not convLong[1] and not boUp
+convShort := convShort and not convShort[1] and not boDn
+
+if convLong
+    drawTrade("Convergence Bounce (" + str.tostring(supHits) + " levels)", true, close, low - zone, swHi)
+if convShort
+    drawTrade("Convergence Rejection (" + str.tostring(resHits) + " levels)", false, close, high + zone, swLo)
+
+// ───────── Trade boxes (no text): green = entry -> profit target, red = entry -> failure target ─────────
+var int   tDir  = 0
+var int   tBar  = na
+var float tE    = na
+var float tF    = na
+var float tP    = na
+var box   bWin  = na
+var box   bRisk = na
+newDay = dayofmonth(time, "America/New_York") != dayofmonth(time[1], "America/New_York")
+// manage the open box: stretch until profit or failure target is hit, or the day ends
+if tDir != 0
+    if newDay
+        tDir := 0
+    else
+        box.set_right(bWin, bar_index + 1)
+        box.set_right(bRisk, bar_index + 1)
+        if bar_index > tBar and (tDir == 1 ? (low <= tF or high >= tP) : (high >= tF or low <= tP))
+            tDir := 0
+// open a new box on a signal (a new signal replaces the old box)
+nDir = boUp or convLong ? 1 : boDn or convShort ? -1 : 0
+if showBoxes and nDir != 0
+    nF = boUp or boDn ? (rHi + rLo) / 2 : convLong ? low - zone : high + zone
+    nP = boUp ? rHi + (rHi - rLo) : boDn ? rLo - (rHi - rLo) : convLong ? swHi : swLo
+    if (nP - close) * nDir > 0 and (close - nF) * nDir > 0
+        tDir := nDir
+        tBar := bar_index
+        tE   := close
+        tF   := nF
+        tP   := nP
+        bWin  := box.new(bar_index, math.max(tE, tP), bar_index + 1, math.min(tE, tP), border_color = color.new(color.green, 0), bgcolor = color.new(color.green, 75))
+        bRisk := box.new(bar_index, math.max(tE, tF), bar_index + 1, math.min(tE, tF), border_color = color.new(color.red, 0), bgcolor = color.new(color.red, 75))
+
+// Fibonacci grid on the last bar
+var line[] fibLines = array.new_line()
+if showFib and barstate.islast
+    for l in fibLines
+        line.delete(l)
+    array.clear(fibLines)
+    for lvl in array.from(swHi, f38, f50, f62, swLo)
+        array.push(fibLines, line.new(bar_index - swingLen, lvl, bar_index + 10, lvl, color = color.new(color.navy, 30)))
+
+alertcondition(boUp, "Farley Range Breakout", "{{ticker}} range breakout on {{interval}}")
+alertcondition(boDn, "Farley Range Breakdown", "{{ticker}} range breakdown on {{interval}}")
+alertcondition(convLong, "Farley Convergence Long", "{{ticker}} convergence bounce on {{interval}}")
+alertcondition(convShort, "Farley Convergence Short", "{{ticker}} convergence rejection on {{interval}}")
