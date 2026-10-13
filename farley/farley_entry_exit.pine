@@ -23,6 +23,7 @@ showFib  = input.bool(true, "Draw Fibonacci grid", group = grpC)
 showBB   = input.bool(true, "Show Bollinger Bands + 20/50 MA", group = grpC)
 
 grpX = "Trade boxes"
+minRR     = input.float(1.5, "Min reward / risk (green must be at least this x red, else no trade)", minval = 1.0, step = 0.25, group = grpX)
 showBoxes = input.bool(true, "Show long / short boxes (green = profit, red = failure)", group = grpX)
 showLines = input.bool(false, "Also draw the old profit / failure lines", group = grpX)
 lblSizeIn = input.string("large", "Label text size", options = ["tiny", "small", "normal", "large", "huge"], group = grpX)
@@ -44,6 +45,13 @@ isRange = (rHi - rLo) <= boxATR * atr
 volOK = volume > ta.sma(volume, 20) * volMult
 boUp = useRange and isRange and close > rHi and close[1] <= rHi and volOK
 boDn = useRange and isRange and close < rLo and close[1] >= rLo and volOK
+// failure target just inside the broken edge; profit = measured move (box height). Skip if reward < minRR x risk
+boFailL = rHi - 0.2 * atr
+boFailS = rLo + 0.2 * atr
+boProfL = rHi + (rHi - rLo)
+boProfS = rLo - (rHi - rLo)
+boUp := boUp and close > boFailL and (boProfL - close) >= minRR * (close - boFailL)
+boDn := boDn and close < boFailS and (close - boProfS) >= minRR * (boFailS - close)
 
 drawTrade(string name, bool isLong, float entry, float fail, float profit) =>
     if showLines
@@ -56,10 +64,10 @@ drawTrade(string name, bool isLong, float entry, float fail, float profit) =>
 if boUp
     box.new(bar_index - boxLen, rHi, bar_index - 1, rLo, border_color = color.gray, bgcolor = color.new(color.gray, 85))
     // failure target: back inside the box (mid-range); profit target: measured move = box height
-    drawTrade("Range Breakout", true, close, (rHi + rLo) / 2, rHi + (rHi - rLo))
+    drawTrade("Range Breakout", true, close, boFailL, boProfL)
 if boDn
     box.new(bar_index - boxLen, rHi, bar_index - 1, rLo, border_color = color.gray, bgcolor = color.new(color.gray, 85))
-    drawTrade("Range Breakdown", false, close, (rHi + rLo) / 2, rLo - (rHi - rLo))
+    drawTrade("Range Breakdown", false, close, boFailS, boProfS)
 
 // ───────── 2) Convergence zones ─────────
 swHi = ta.highest(high, swingLen)
@@ -89,6 +97,8 @@ resHits = hits(high)
 // Execution: candle tests the stacked zone and closes back out of it (reversal at the zone), in the direction of the bigger leg
 convLong  = useConv and upLeg and supHits >= minHits and close > open and close > low + (high - low) * 0.5
 convShort = useConv and not upLeg and resHits >= minHits and close < open and close < high - (high - low) * 0.5
+convLong  := convLong and (swHi - close) >= minRR * (close - (low - zone))
+convShort := convShort and (close - swLo) >= minRR * ((high + zone) - close)
 convLong  := convLong and not convLong[1] and not boUp
 convShort := convShort and not convShort[1] and not boDn
 
@@ -118,8 +128,8 @@ if tDir != 0
 // open a new box on a signal (a new signal replaces the old box)
 nDir = boUp or convLong ? 1 : boDn or convShort ? -1 : 0
 if showBoxes and nDir != 0
-    nF = boUp or boDn ? (rHi + rLo) / 2 : convLong ? low - zone : high + zone
-    nP = boUp ? rHi + (rHi - rLo) : boDn ? rLo - (rHi - rLo) : convLong ? swHi : swLo
+    nF = boUp ? boFailL : boDn ? boFailS : convLong ? low - zone : high + zone
+    nP = boUp ? boProfL : boDn ? boProfS : convLong ? swHi : swLo
     if (nP - close) * nDir > 0 and (close - nF) * nDir > 0
         tDir := nDir
         tBar := bar_index
