@@ -2,7 +2,7 @@
 // Candlestick patterns (bullish / bearish / indecision) + double/triple top & bottom breaks,
 // confirmed by the book's indicators: 50/200 SMA trend, MACD, RSI, VWAP (intraday), pivot points.
 //@version=5
-indicator("TGA Patterns + Confirmation", overlay = true, max_labels_count = 500, max_lines_count = 500)
+indicator("TGA Patterns + Confirmation", overlay = true, max_labels_count = 500, max_lines_count = 500, max_boxes_count = 500)
 
 // ───────── Inputs ─────────
 grpC = "Candlestick patterns"
@@ -23,6 +23,12 @@ showSMA   = input.bool(true, "Show 50 / 200 SMA", group = grpF)
 
 grpL = "Labels"
 lblSizeIn = input.string("large", "Label text size", options = ["tiny", "small", "normal", "large", "huge"], group = grpL)
+grpB = "Entry boxes (show the trade when the move starts)"
+showBoxes  = input.bool(true, "Show long / short boxes when price breaks the pattern", group = grpB)
+watchAlert = input.bool(true, "WATCH alert when the pattern candle closes (gives the trigger price)", group = grpB)
+rrT        = input.float(2.0, "Target (x risk)", minval = 0.5, step = 0.5, group = grpB)
+trigBars   = input.int(2, "Cancel if price does not break within N candles", minval = 1, maxval = 10, group = grpB)
+boxDT      = input.bool(true, "Also show boxes for double / triple top & bottom breaks", group = grpB)
 lblSize = lblSizeIn == "tiny" ? size.tiny : lblSizeIn == "small" ? size.small : lblSizeIn == "normal" ? size.normal : lblSizeIn == "huge" ? size.huge : size.large
 
 // ───────── Indicators from chapter 2 ─────────
@@ -99,12 +105,99 @@ bearTxt = needConfirm ? bearName[1] : bearName
 bullSig := showCandles and bullSig and bullScore >= minScore
 bearSig := showCandles and bearSig and bearScore >= minScore
 
+lblX = needConfirm ? bar_index - 1 : bar_index
 if bullSig
-    label.new(bar_index, low, bullTxt + "\n" + str.tostring(bullScore) + "/4", style = label.style_label_up, yloc = yloc.belowbar, color = color.new(color.green, 10), textcolor = color.white, size = lblSize)
+    label.new(lblX, low, bullTxt + "\n" + str.tostring(bullScore) + "/4", style = label.style_label_up, yloc = yloc.belowbar, color = color.new(color.green, 10), textcolor = color.white, size = lblSize)
     alert(syminfo.ticker + " shows a " + bullTxt + " candle on the " + timeframe.period + " chart (bullish, " + str.tostring(bullScore) + "/4 confirmations).", alert.freq_once_per_bar_close)
 if bearSig
-    label.new(bar_index, high, bearTxt + "\n" + str.tostring(bearScore) + "/4", style = label.style_label_down, yloc = yloc.abovebar, color = color.new(color.red, 10), textcolor = color.white, size = lblSize)
+    label.new(lblX, high, bearTxt + "\n" + str.tostring(bearScore) + "/4", style = label.style_label_down, yloc = yloc.abovebar, color = color.new(color.red, 10), textcolor = color.white, size = lblSize)
     alert(syminfo.ticker + " shows a " + bearTxt + " candle on the " + timeframe.period + " chart (bearish, " + str.tostring(bearScore) + "/4 confirmations).", alert.freq_once_per_bar_close)
+
+// ───────── Entry boxes: WATCH at pattern close -> box when price breaks the pattern candle ─────────
+var float pLtrig = na
+var float pLstop = na
+var int   pLbar  = na
+var string pLname = ""
+var line  pLline = na
+var float pStrig = na
+var float pSstop = na
+var int   pSbar  = na
+var string pSname = ""
+var line  pSline = na
+var int   aDir  = 0
+var int   aBar  = na
+var float aE    = na
+var float aS    = na
+var float aT    = na
+var box   aWin  = na
+var box   aRisk = na
+
+// 1) manage the open trade (from the candle after entry): stretch the boxes until target or stop is hit
+if aDir != 0
+    box.set_right(aWin, bar_index + 1)
+    box.set_right(aRisk, bar_index + 1)
+    if bar_index > aBar
+        hitS = aDir == 1 ? low <= aS : high >= aS
+        hitT = aDir == 1 ? high >= aT : low <= aT
+        if hitS or hitT
+            res = hitS ? "STOPPED" : "TARGET HIT"
+            box.set_text(hitS ? aRisk : aWin, res)
+            alert(syminfo.ticker + " " + (aDir == 1 ? "CALLS" : "PUTS") + " trade: " + res + " at " + str.tostring(hitS ? aS : aT, format.mintick) + ".", alert.freq_once_per_bar)
+            aDir := 0
+
+// 2) pending setups: open the box the moment price breaks the trigger
+trigL = showBoxes and aDir == 0 and not na(pLbar) and bar_index > pLbar and bar_index <= pLbar + trigBars and high >= pLtrig
+trigS = showBoxes and aDir == 0 and not na(pSbar) and bar_index > pSbar and bar_index <= pSbar + trigBars and low <= pStrig and not trigL
+if trigL
+    aDir  := 1
+    aBar  := bar_index
+    aE    := math.max(open, pLtrig)
+    aS    := pLstop
+    aT    := aE + rrT * (aE - aS)
+    aWin  := box.new(bar_index, aT, bar_index + 1, aE, border_color = color.new(color.green, 0), bgcolor = color.new(color.green, 75), text = "LONG - " + pLname + "\nTarget " + str.tostring(aT, format.mintick), text_color = color.white, text_size = lblSize)
+    aRisk := box.new(bar_index, aE, bar_index + 1, aS, border_color = color.new(color.red, 0), bgcolor = color.new(color.red, 75), text = "Stop " + str.tostring(aS, format.mintick), text_color = color.white, text_size = lblSize)
+    alert(syminfo.ticker + " CALLS TRIGGERED (" + pLname + ") at " + str.tostring(aE, format.mintick) + " - stop " + str.tostring(aS, format.mintick) + ", target " + str.tostring(aT, format.mintick) + ".", alert.freq_once_per_bar)
+    line.delete(pLline)
+    pLbar := na
+if trigS
+    aDir  := -1
+    aBar  := bar_index
+    aE    := math.min(open, pStrig)
+    aS    := pSstop
+    aT    := aE - rrT * (aS - aE)
+    aWin  := box.new(bar_index, aE, bar_index + 1, aT, border_color = color.new(color.green, 0), bgcolor = color.new(color.green, 75), text = "SHORT - " + pSname + "\nTarget " + str.tostring(aT, format.mintick), text_color = color.white, text_size = lblSize)
+    aRisk := box.new(bar_index, aS, bar_index + 1, aE, border_color = color.new(color.red, 0), bgcolor = color.new(color.red, 75), text = "Stop " + str.tostring(aS, format.mintick), text_color = color.white, text_size = lblSize)
+    alert(syminfo.ticker + " PUTS TRIGGERED (" + pSname + ") at " + str.tostring(aE, format.mintick) + " - stop " + str.tostring(aS, format.mintick) + ", target " + str.tostring(aT, format.mintick) + ".", alert.freq_once_per_bar)
+    line.delete(pSline)
+    pSbar := na
+
+// 3) cancel setups that did not break in time
+if not na(pLbar) and bar_index >= pLbar + trigBars and barstate.isconfirmed
+    line.delete(pLline)
+    pLbar := na
+if not na(pSbar) and bar_index >= pSbar + trigBars and barstate.isconfirmed
+    line.delete(pSline)
+    pSbar := na
+
+// 4) new pattern candle closed -> WATCH: dotted trigger line + alert with the exact prices
+if showBoxes and showCandles and barstate.isconfirmed and bullPat and bullScore >= minScore
+    line.delete(pLline)
+    pLtrig := high
+    pLstop := low - 0.1 * atr
+    pLbar  := bar_index
+    pLname := bullName
+    pLline := line.new(bar_index, pLtrig, bar_index + trigBars, pLtrig, color = color.new(color.green, 0), style = line.style_dotted, width = 2)
+    if watchAlert
+        alert(syminfo.ticker + " WATCH: " + bullName + " (" + str.tostring(bullScore) + "/4) on the " + timeframe.period + " chart - CALLS if price breaks " + str.tostring(pLtrig, format.mintick) + ", stop " + str.tostring(pLstop, format.mintick) + ".", alert.freq_once_per_bar_close)
+if showBoxes and showCandles and barstate.isconfirmed and bearPat and bearScore >= minScore
+    line.delete(pSline)
+    pStrig := low
+    pSstop := high + 0.1 * atr
+    pSbar  := bar_index
+    pSname := bearName
+    pSline := line.new(bar_index, pStrig, bar_index + trigBars, pStrig, color = color.new(color.red, 0), style = line.style_dotted, width = 2)
+    if watchAlert
+        alert(syminfo.ticker + " WATCH: " + bearName + " (" + str.tostring(bearScore) + "/4) on the " + timeframe.period + " chart - PUTS if price breaks " + str.tostring(pStrig, format.mintick) + ", stop " + str.tostring(pSstop, format.mintick) + ".", alert.freq_once_per_bar_close)
 
 plotshape(showIndec and doji, "Doji", shape.cross, location.abovebar, color.new(color.gray, 0), size = size.tiny)
 plotshape(showIndec and spinTop and not doji, "Spinning Top", shape.diamond, location.abovebar, color.new(color.gray, 30), size = size.tiny)
@@ -152,6 +245,14 @@ if dblBot
     tgt = neckUp + (neckUp - lo1)
     label.new(bar_index, low, name + " break\nStop " + str.tostring(lo1, format.mintick) + "\nTarget " + str.tostring(tgt, format.mintick), style = label.style_label_up, yloc = yloc.belowbar, color = color.new(color.teal, 0), textcolor = color.white, size = lblSize)
     line.new(bar_index, neckUp, bar_index + 20, neckUp, color = color.teal, style = line.style_dashed)
+    if showBoxes and boxDT and aDir == 0 and close > lo1
+        aDir  := 1
+        aBar  := bar_index
+        aE    := close
+        aS    := lo1
+        aT    := tgt
+        aWin  := box.new(bar_index, aT, bar_index + 1, aE, border_color = color.new(color.green, 0), bgcolor = color.new(color.green, 75), text = "LONG - " + name + "\nTarget " + str.tostring(aT, format.mintick), text_color = color.white, text_size = lblSize)
+        aRisk := box.new(bar_index, aE, bar_index + 1, aS, border_color = color.new(color.red, 0), bgcolor = color.new(color.red, 75), text = "Stop " + str.tostring(aS, format.mintick), text_color = color.white, text_size = lblSize)
     alert(syminfo.ticker + " has a " + name + " breakout on the " + timeframe.period + " chart. Neckline " + str.tostring(neckUp, format.mintick) + ", target " + str.tostring(tgt, format.mintick) + ".", alert.freq_once_per_bar_close)
     nBot := 0
 if dblTop
@@ -159,6 +260,14 @@ if dblTop
     tgt = neckDn - (hi1 - neckDn)
     label.new(bar_index, high, name + " break\nStop " + str.tostring(hi1, format.mintick) + "\nTarget " + str.tostring(tgt, format.mintick), style = label.style_label_down, yloc = yloc.abovebar, color = color.new(color.maroon, 0), textcolor = color.white, size = lblSize)
     line.new(bar_index, neckDn, bar_index + 20, neckDn, color = color.maroon, style = line.style_dashed)
+    if showBoxes and boxDT and aDir == 0 and close < hi1
+        aDir  := -1
+        aBar  := bar_index
+        aE    := close
+        aS    := hi1
+        aT    := tgt
+        aWin  := box.new(bar_index, aE, bar_index + 1, aT, border_color = color.new(color.green, 0), bgcolor = color.new(color.green, 75), text = "SHORT - " + name + "\nTarget " + str.tostring(aT, format.mintick), text_color = color.white, text_size = lblSize)
+        aRisk := box.new(bar_index, aS, bar_index + 1, aE, border_color = color.new(color.red, 0), bgcolor = color.new(color.red, 75), text = "Stop " + str.tostring(aS, format.mintick), text_color = color.white, text_size = lblSize)
     alert(syminfo.ticker + " has a " + name + " breakdown on the " + timeframe.period + " chart. Neckline " + str.tostring(neckDn, format.mintick) + ", target " + str.tostring(tgt, format.mintick) + ".", alert.freq_once_per_bar_close)
     nTop := 0
 
