@@ -1,0 +1,227 @@
+//@version=5
+// Liquidity Sweep Detector
+// Marks the moment price RAIDS a pool of stop-losses and closes back inside:
+//   - Old High / Old Low (previous swing points)
+//   - Equal Highs / Equal Lows (2+ swings at about the same price)
+//   - Higher-timeframe levels: previous 4H, Day, Week, Month high/low
+// Sweep rule: the wick goes past the level, but the candle CLOSES back on the other side.
+// If the candle closes beyond the level, it is a real breakout (not a sweep) and the level is removed.
+indicator("Liquidity Sweeps", shorttitle="LiqSweeps", overlay=true, max_lines_count=500, max_labels_count=500)
+
+// ---------- Settings ----------
+pivLen = input.int(5, "Swing strength (bars on each side)", minval=2)
+eqTol  = input.float(0.10, "Equal high/low tolerance (x ATR)", minval=0.0, step=0.05)
+maxLv  = input.int(15, "Max swing levels kept per side", minval=1, maxval=50)
+
+grpH    = "Higher-timeframe levels"
+use4    = input.bool(true, "Previous 4H high/low", group=grpH)
+useD    = input.bool(true, "Previous Day high/low", group=grpH)
+useW    = input.bool(true, "Previous Week high/low", group=grpH)
+useM    = input.bool(true, "Previous Month high/low", group=grpH)
+showHTF = input.bool(true, "Draw the HTF levels on the chart", group=grpH)
+
+grpC     = "Confirmation (strong candle)"
+confBars = input.int(5, "Bars to wait for confirmation", minval=1, group=grpC)
+bodyMult = input.float(0.8, "Strong candle: body at least (x ATR)", minval=0.1, step=0.1, group=grpC)
+rrTarget = input.float(2.0, "Target = risk x", minval=0.5, step=0.5, group=grpC)
+bodyPct  = input.float(0.6, "Strong candle: body at least (% of candle range)", minval=0.1, maxval=1.0, step=0.05, group=grpC)
+
+grpT     = "Trend filter"
+useTrend = input.bool(true, "Only trade WITH the bigger trend", group=grpT)
+trendLen = input.int(200, "Trend EMA length", minval=10, group=grpT)
+trendTF  = input.timeframe("60", "Trend timeframe (blank = chart)", group=grpT)
+hideCT   = input.bool(true, "Hide sweep labels that go against the trend", group=grpT)
+
+atr = ta.atr(14)
+
+// Trend: price above the EMA and EMA rising = UP; below and falling = DOWN; otherwise sideways
+emaChart  = ta.ema(close, trendLen)
+trendEma  = trendTF == "" ? emaChart : request.security(syminfo.tickerid, trendTF, ta.ema(close, trendLen)[1], lookahead=barmerge.lookahead_on)
+trendPrev = trendTF == "" ? emaChart[1] : request.security(syminfo.tickerid, trendTF, ta.ema(close, trendLen)[2], lookahead=barmerge.lookahead_on)
+trendUp   = close > trendEma and trendEma >= trendPrev
+trendDown = close < trendEma and trendEma <= trendPrev
+allowBuy  = not useTrend or trendUp
+allowSell = not useTrend or trendDown
+plot(useTrend ? trendEma : na, "Trend EMA", trendUp ? color.lime : trendDown ? color.fuchsia : color.gray, 3)
+
+// ---------- Swing level storage ----------
+var float[] hiP = array.new_float()
+var int[]   hiN = array.new_int()
+var line[]  hiL = array.new_line()
+var float[] loP = array.new_float()
+var int[]   loN = array.new_int()
+var line[]  loL = array.new_line()
+
+// Add a new swing level, or merge it into an existing one (= Equal High/Low)
+addLevel(float[] P, int[] N, line[] L, float price, int x, float tol, color col) =>
+    bool merged = false
+    int sz = array.size(P)
+    if sz > 0
+        for i = 0 to sz - 1
+            if not merged and math.abs(array.get(P, i) - price) <= tol
+                array.set(N, i, array.get(N, i) + 1)
+                line.set_style(array.get(L, i), line.style_solid)
+                line.set_width(array.get(L, i), 2)
+                merged := true
+    if not merged
+        array.push(P, price)
+        array.push(N, 1)
+        array.push(L, line.new(x, price, x + 1, price, extend=extend.right, color=col, style=line.style_dotted))
+        if array.size(P) > maxLv
+            array.shift(P)
+            array.shift(N)
+            line.delete(array.shift(L))
+    merged
+
+// Check every stored level for a sweep on this candle. Returns the names of swept levels.
+checkSweep(float[] P, int[] N, line[] L, bool isHigh) =>
+    string txt = ""
+    int sz = array.size(P)
+    if sz > 0
+        for i = sz - 1 to 0
+            float p = array.get(P, i)
+            bool pierced = isHigh ? high > p : low < p
+            if pierced
+                bool rejected = isHigh ? close < p : close > p
+                line ln = array.get(L, i)
+                if rejected
+                    int n = array.get(N, i)
+                    string nm = n > 1 ? (isHigh ? "Equal Highs x" : "Equal Lows x") + str.tostring(n) : (isHigh ? "Old High" : "Old Low")
+                    txt := txt + nm + "\n"
+                    line.set_extend(ln, extend.none)
+                    line.set_x2(ln, bar_index)
+                    line.set_color(ln, isHigh ? color.red : color.green)
+                    line.set_style(ln, line.style_solid)
+                else
+                    line.delete(ln)
+                array.remove(P, i)
+                array.remove(N, i)
+                array.remove(L, i)
+    txt
+
+// Sweep of a higher-timeframe level (counted once per period)
+htfSweep(float lvl, bool isHigh) =>
+    var bool done = false
+    if ta.change(lvl) != 0
+        done := false
+    bool hit = false
+    if not done and not na(lvl)
+        bool pierced = isHigh ? high > lvl : low < lvl
+        if pierced
+            hit := isHigh ? close < lvl : close > lvl
+            done := true
+    hit
+
+// ---------- Swings (Old / Equal highs & lows) ----------
+ph = ta.pivothigh(high, pivLen, pivLen)
+pl = ta.pivotlow(low, pivLen, pivLen)
+if not na(ph)
+    addLevel(hiP, hiN, hiL, ph, bar_index - pivLen, atr * eqTol, color.new(color.red, 30))
+if not na(pl)
+    addLevel(loP, loN, loL, pl, bar_index - pivLen, atr * eqTol, color.new(color.green, 30))
+
+string hiTxt = checkSweep(hiP, hiN, hiL, true)
+string loTxt = checkSweep(loP, loN, loL, false)
+
+// ---------- Higher-timeframe levels (no repainting) ----------
+p4h = request.security(syminfo.tickerid, "240", high[1], lookahead=barmerge.lookahead_on)
+p4l = request.security(syminfo.tickerid, "240", low[1],  lookahead=barmerge.lookahead_on)
+pdh = request.security(syminfo.tickerid, "D",   high[1], lookahead=barmerge.lookahead_on)
+pdl = request.security(syminfo.tickerid, "D",   low[1],  lookahead=barmerge.lookahead_on)
+pwh = request.security(syminfo.tickerid, "W",   high[1], lookahead=barmerge.lookahead_on)
+pwl = request.security(syminfo.tickerid, "W",   low[1],  lookahead=barmerge.lookahead_on)
+pmh = request.security(syminfo.tickerid, "M",   high[1], lookahead=barmerge.lookahead_on)
+pml = request.security(syminfo.tickerid, "M",   low[1],  lookahead=barmerge.lookahead_on)
+
+s4h = htfSweep(p4h, true)
+s4l = htfSweep(p4l, false)
+sdh = htfSweep(pdh, true)
+sdl = htfSweep(pdl, false)
+swh = htfSweep(pwh, true)
+swl = htfSweep(pwl, false)
+smh = htfSweep(pmh, true)
+sml = htfSweep(pml, false)
+
+hiTxt := hiTxt + (use4 and s4h ? "Prev 4H High\n" : "") + (useD and sdh ? "Prev Day High\n" : "") + (useW and swh ? "Prev Week High\n" : "") + (useM and smh ? "Prev Month High\n" : "")
+loTxt := loTxt + (use4 and s4l ? "Prev 4H Low\n" : "") + (useD and sdl ? "Prev Day Low\n" : "") + (useW and swl ? "Prev Week Low\n" : "") + (useM and sml ? "Prev Month Low\n" : "")
+
+plot(showHTF and use4 ? p4h : na, "Prev 4H High",    color.new(color.gray, 40),   1, plot.style_stepline)
+plot(showHTF and use4 ? p4l : na, "Prev 4H Low",     color.new(color.gray, 40),   1, plot.style_stepline)
+plot(showHTF and useD ? pdh : na, "Prev Day High",   color.new(color.orange, 20), 1, plot.style_stepline)
+plot(showHTF and useD ? pdl : na, "Prev Day Low",    color.new(color.orange, 20), 1, plot.style_stepline)
+plot(showHTF and useW ? pwh : na, "Prev Week High",  color.new(color.blue, 20),   2, plot.style_stepline)
+plot(showHTF and useW ? pwl : na, "Prev Week Low",   color.new(color.blue, 20),   2, plot.style_stepline)
+plot(showHTF and useM ? pmh : na, "Prev Month High", color.new(color.purple, 20), 2, plot.style_stepline)
+plot(showHTF and useM ? pml : na, "Prev Month Low",  color.new(color.purple, 20), 2, plot.style_stepline)
+
+// ---------- Signals ----------
+bearSweep = hiTxt != "" and (allowSell or not hideCT)   // stops above highs taken -> expect move DOWN
+bullSweep = loTxt != "" and (allowBuy or not hideCT)    // stops below lows taken  -> expect move UP
+
+// Step 1: the sweep = a WARNING only (yellow / sky-blue, "wait")
+if bearSweep
+    label.new(bar_index, high, "SWEEP = SELL SETUP (wait)\n" + hiTxt, yloc=yloc.abovebar, style=label.style_label_down, color=color.new(color.yellow, 0), textcolor=color.black, size=size.normal)
+    alert(syminfo.ticker + " swept liquidity above: " + str.replace_all(hiTxt, "\n", " ") + "on the " + timeframe.period + " chart. WAIT for a strong red candle.", alert.freq_once_per_bar_close)
+if bullSweep
+    label.new(bar_index, low, "SWEEP = BUY SETUP (wait)\n" + loTxt, yloc=yloc.belowbar, style=label.style_label_up, color=color.new(color.aqua, 0), textcolor=color.black, size=size.normal)
+    alert(syminfo.ticker + " swept liquidity below: " + str.replace_all(loTxt, "\n", " ") + "on the " + timeframe.period + " chart. WAIT for a strong green candle.", alert.freq_once_per_bar_close)
+
+// Step 2: the strong candle in the new direction = CONFIRMED signal
+var int   bearAt  = na   // bar of the last bearish sweep
+var int   bullAt  = na
+var float bearLvl = na   // sweep candle's low  (must close below it)
+var float bullLvl = na   // sweep candle's high (must close above it)
+
+float body   = math.abs(close - open)
+float range_ = high - low
+bool  strong = body >= atr * bodyMult and range_ > 0 and body / range_ >= bodyPct
+
+bool sellOk = not bearSweep and not na(bearAt) and bar_index - bearAt <= confBars and strong and close < open and close < bearLvl and allowSell
+bool buyOk  =not bullSweep and not na(bullAt) and bar_index - bullAt <= confBars and strong and close > open and close > bullLvl and allowBuy
+
+var float bearTop = na   // sweep wick high = stop-loss for a sell
+var float bullBot = na   // sweep wick low  = stop-loss for a buy
+if sellOk
+    float risk = bearTop - close
+    line.new(bar_index, bearTop, bar_index + 20, bearTop, color=color.red, width=2)
+    label.new(bar_index + 20, bearTop, "STOP " + str.tostring(bearTop, format.mintick), style=label.style_label_left, color=color.red, textcolor=color.white, size=size.small)
+    line.new(bar_index, close - rrTarget * risk, bar_index + 20, close - rrTarget * risk, color=color.lime, width=2)
+    label.new(bar_index + 20, close - rrTarget * risk, "TARGET " + str.tostring(close - rrTarget * risk, format.mintick), style=label.style_label_left, color=color.lime, textcolor=color.black, size=size.small)
+if buyOk
+    float risk = close - bullBot
+    line.new(bar_index, bullBot, bar_index + 20, bullBot, color=color.red, width=2)
+    label.new(bar_index + 20, bullBot, "STOP " + str.tostring(bullBot, format.mintick), style=label.style_label_left, color=color.red, textcolor=color.white, size=size.small)
+    line.new(bar_index, close + rrTarget * risk, bar_index + 20, close + rrTarget * risk, color=color.lime, width=2)
+    label.new(bar_index + 20, close + rrTarget * risk, "TARGET " + str.tostring(close + rrTarget * risk, format.mintick), style=label.style_label_left, color=color.lime, textcolor=color.black, size=size.small)
+
+if bearSweep
+    bearAt  := bar_index
+    bearLvl := low
+    bearTop := high
+if bullSweep
+    bullAt  := bar_index
+    bullLvl := high
+    bullBot := low
+if not na(bearAt) and high > bearTop
+    bearAt := na   // price went above the sweep wick = setup failed
+if not na(bullAt) and low < bullBot
+    bullAt := na
+if sellOk or (not na(bearAt) and bar_index - bearAt > confBars)
+    bearAt := na   // used up or expired
+if buyOk or (not na(bullAt) and bar_index - bullAt > confBars)
+    bullAt := na
+
+if sellOk
+    label.new(bar_index, high, "SELL CONFIRMED", yloc=yloc.abovebar, style=label.style_label_down, color=color.fuchsia, textcolor=color.white, size=size.large)
+    alert(syminfo.ticker + " SELL CONFIRMED on the " + timeframe.period + " chart: strong red candle after a liquidity sweep.", alert.freq_once_per_bar_close)
+if buyOk
+    label.new(bar_index, low, "BUY CONFIRMED", yloc=yloc.belowbar, style=label.style_label_up, color=color.lime, textcolor=color.black, size=size.large)
+    alert(syminfo.ticker + " BUY CONFIRMED on the " + timeframe.period + " chart: strong green candle after a liquidity sweep.", alert.freq_once_per_bar_close)
+
+barcolor(sellOk ? color.fuchsia : buyOk ? color.lime : bearSweep ? color.yellow : bullSweep ? color.aqua : na)
+bgcolor(sellOk ? color.new(color.fuchsia, 80) : buyOk ? color.new(color.lime, 80) : na)
+
+alertcondition(bearSweep, "Bearish liquidity sweep (wait)", "{{ticker}} swept liquidity above highs on {{interval}} - wait for confirmation")
+alertcondition(bullSweep, "Bullish liquidity sweep (wait)", "{{ticker}} swept liquidity below lows on {{interval}} - wait for confirmation")
+alertcondition(sellOk, "SELL confirmed", "{{ticker}} SELL CONFIRMED on {{interval}}")
+alertcondition(buyOk,  "BUY confirmed",  "{{ticker}} BUY CONFIRMED on {{interval}}")

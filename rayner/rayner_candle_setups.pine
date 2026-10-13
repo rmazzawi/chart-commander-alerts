@@ -1,0 +1,99 @@
+// Book 4: "The Monster Guide to Candlestick Patterns" - Rayner Teo
+// Reversal setup: trend + pullback to support/resistance + reversal candle LARGER than earlier candles -> enter next open
+// Continuation setup: range breakout, then Rising/Falling Three Method or Harami -> enter on break of its high/low
+//@version=5
+indicator("Rayner Candle Setups", overlay = true, max_labels_count = 500, max_lines_count = 500)
+
+grp = "Setup"
+trendLen = input.int(50, "Trend MA length", group = grp)
+srLen    = input.int(20, "Support/resistance lookback", group = grp)
+nearATR  = input.float(0.75, "'At support' distance (x ATR)", step = 0.25, group = grp)
+sizeLook = input.int(5, "Pattern must be larger than previous N candles", group = grp)
+rrTarget = input.float(2.0, "Target (R multiple)", step = 0.5, group = grp)
+useRev   = input.bool(true, "Reversal setups", group = grp)
+useCont  = input.bool(true, "Continuation setups", group = grp)
+showTrend = input.bool(true, "Show trend MA")
+
+ma  = ta.sma(close, trendLen)
+atr = ta.atr(14)
+plot(showTrend ? ma : na, "Trend MA", color.new(color.blue, 20), 2)
+
+body = math.abs(close - open)
+rng  = high - low
+upW  = high - math.max(open, close)
+loW  = math.min(open, close) - low
+bull = close > open
+bear = close < open
+pos  = rng > 0 ? (close - low) / rng : 0.5     // where the close sits in the range
+
+upTrend   = close > ma and ma > ma[5]
+downTrend = close < ma and ma < ma[5]
+
+// Support = recent swing lows / MA, resistance = recent swing highs / MA (measured before this candle)
+sup = ta.lowest(low, srLen)[2]
+res = ta.highest(high, srLen)[2]
+atSupport    = math.abs(low - sup) <= nearATR * atr or math.abs(low - ma) <= nearATR * atr or math.abs(low[1] - ma) <= nearATR * atr
+atResistance = math.abs(high - res) <= nearATR * atr or math.abs(high - ma) <= nearATR * atr or math.abs(high[1] - ma) <= nearATR * atr
+
+// ───────── Patterns, as defined in the book ─────────
+hammer     = upW <= body and pos >= 0.75 and loW >= 2 * body and body > 0
+shootStar  = loW <= body and pos <= 0.25 and upW >= 2 * body and body > 0
+bullEng    = bear[1] and bull and close >= open[1] and open <= close[1]
+bearEng    = bull[1] and bear and close <= open[1] and open >= close[1]
+piercing   = bear[1] and bull and close > (open[1] + close[1]) / 2 and close < open[1]
+darkCloud  = bull[1] and bear and close < (open[1] + close[1]) / 2 and close > open[1]
+tweezBot   = loW[1] > body[1] and math.abs(low - low[1]) <= atr * 0.1 and bull
+tweezTop   = upW[1] > body[1] and math.abs(high - high[1]) <= atr * 0.1 and bear
+mornStar   = bear[2] and rng[1] < rng[2] * 0.5 and bull and close > close[2] + (open[2] - close[2]) * 0.5
+eveStar    = bull[2] and rng[1] < rng[2] * 0.5 and bear and close < close[2] - (close[2] - open[2]) * 0.5
+
+bullName = hammer ? "Hammer" : bullEng ? "Bullish Engulfing" : mornStar ? "Morning Star" : piercing ? "Piercing" : tweezBot ? "Tweezer Bottom" : ""
+bearName = shootStar ? "Shooting Star" : bearEng ? "Bearish Engulfing" : eveStar ? "Evening Star" : darkCloud ? "Dark Cloud Cover" : tweezTop ? "Tweezer Top" : ""
+
+// "make sure the size of it is larger than the earlier candles (signalling strong rejection)"
+bigger = rng > ta.highest(rng, sizeLook)[1]
+bigger2 = math.max(rng, rng[1]) > ta.highest(rng, sizeLook)[2]
+
+// Reversal signal on pattern close, entry = next candle open
+revLong  = useRev and upTrend[2] and bullName != "" and atSupport and (bigger or bigger2)
+revShort = useRev and downTrend[2] and bearName != "" and atResistance and (bigger or bigger2)
+
+// ───────── Continuation: range breakout, then Rising Three / Harami, buy the break of its high ─────────
+boUp = ta.crossover(close, ta.highest(high, srLen)[1])
+boDn = ta.crossunder(close, ta.lowest(low, srLen)[1])
+recentBoUp = ta.barssince(boUp) <= 10
+recentBoDn = ta.barssince(boDn) <= 10
+
+risingThree  = bull[4] and body[4] > ta.sma(body, 14)[4] and math.max(high[1], high[2], high[3]) <= high[4] and math.min(low[1], low[2], low[3]) >= low[4] and bull and close > high[4]
+fallingThree = bear[4] and body[4] > ta.sma(body, 14)[4] and math.max(high[1], high[2], high[3]) <= high[4] and math.min(low[1], low[2], low[3]) >= low[4] and bear and close < low[4]
+bullHarami   = bull[1] and high < high[1] and low > low[1] and body < body[1] * 0.5
+bearHarami   = bear[1] and high < high[1] and low > low[1] and body < body[1] * 0.5
+
+contLong  = useCont and recentBoUp and (risingThree or (bullHarami[1] and high > high[1]))
+contShort = useCont and recentBoDn and (fallingThree or (bearHarami[1] and low < low[1]))
+
+// ───────── Plot + alerts ─────────
+lo3 = ta.lowest(low, 3)
+hi3 = ta.highest(high, 3)
+
+signal(string name, bool isLong, float stop) =>
+    entry = close
+    risk  = math.abs(entry - stop)
+    tgt   = isLong ? entry + rrTarget * risk : entry - rrTarget * risk
+    txt = name + "\nEntry ~" + str.tostring(entry, format.mintick) + "\nStop " + str.tostring(stop, format.mintick) + "\nTarget " + str.tostring(tgt, format.mintick)
+    label.new(bar_index, isLong ? low : high, txt, yloc = isLong ? yloc.belowbar : yloc.abovebar, style = isLong ? label.style_label_up : label.style_label_down, color = isLong ? color.new(color.green, 10) : color.new(color.red, 10), textcolor = color.white, size = size.small)
+    line.new(bar_index, stop, bar_index + 15, stop, color = color.red)
+    line.new(bar_index, tgt, bar_index + 15, tgt, color = color.green, style = line.style_dashed)
+    alert(syminfo.ticker + " has a " + name + (isLong ? " (long)" : " (short)") + " on the " + timeframe.period + " chart. Enter next open, stop " + str.tostring(stop, format.mintick) + ", target " + str.tostring(tgt, format.mintick) + ".", alert.freq_once_per_bar_close)
+
+if revLong
+    signal(bullName + " at support", true, lo3 - 0.1 * atr)
+else if contLong
+    signal(risingThree ? "Rising Three Method" : "Bullish Harami break", true, lo3 - 0.1 * atr)
+if revShort
+    signal(bearName + " at resistance", false, hi3 + 0.1 * atr)
+else if contShort
+    signal(fallingThree ? "Falling Three Method" : "Bearish Harami break", false, hi3 + 0.1 * atr)
+
+alertcondition(revLong or contLong, "Rayner Long", "{{ticker}} Rayner long setup on {{interval}}")
+alertcondition(revShort or contShort, "Rayner Short", "{{ticker}} Rayner short setup on {{interval}}")
