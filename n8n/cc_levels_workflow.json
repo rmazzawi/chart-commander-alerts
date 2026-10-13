@@ -1,0 +1,123 @@
+{
+  "name": "CC Levels Dashboard",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "cc-levels",
+        "options": {}
+      },
+      "name": "TradingView In",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "webhookId": "cc-levels-in"
+    },
+    {
+      "parameters": {
+        "jsCode": "const s = $getWorkflowStaticData('global');\nlet b = $input.first().json.body;\nif (typeof b === 'string') b = JSON.parse(b.replace(/\\bNaN\\b/g, 'null'));\ns.list = (b && b.list) || [];\ns.updated = new Date().toISOString();\nreturn [{ json: { ok: true, count: s.list.length } }];"
+      },
+      "name": "Save List",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        224,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "path": "cc-levels-page",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "name": "Page Request",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        224
+      ],
+      "webhookId": "cc-levels-page"
+    },
+    {
+      "parameters": {
+        "jsCode": "const s = $getWorkflowStaticData('global');\nconst list = (s.list || []).slice();\nconst col = x => /ABOVE/.test(x) ? '#16a34a' : /BELOW/.test(x) ? '#dc2626' : '#6b7280';\nconst f = v => (v === null || v === undefined || Number.isNaN(v)) ? '-' : v;\n// crossed tickers first (PDH/PDL, then PMH/PML), INSIDE last\nconst rank = x => /PDH|PDL/.test(x) ? 0 : /PMH|PML/.test(x) ? 1 : 2;\nlist.sort((a, b) => rank(a.signal) - rank(b.signal));\nconst et = s.updated ? new Date(s.updated).toLocaleString('en-US', { timeZone: 'America/New_York' }) + ' ET' : 'no data yet';\nconst rows = list.map(r => `<tr><td><b>${r.t}</b></td><td>${f(r.price)}</td><td style=\"background:${col(r.signal)};color:#fff\">${r.signal}</td><td style=\"background:${col(r.side)};color:#fff\">${r.side} VWAP</td><td>${f(r.pmh)}</td><td>${f(r.pml)}</td><td>${f(r.pdh)}</td><td>${f(r.pdl)}</td><td>${f(r.vwap)}</td></tr>`).join('');\nconst html = `<!doctype html><html><head><meta charset=utf-8><meta name=viewport content=\"width=device-width,initial-scale=1\"><meta http-equiv=refresh content=60><title>CC Levels</title><style>body{font-family:sans-serif;background:#0f172a;color:#e2e8f0;padding:16px}table{border-collapse:collapse;width:100%}td,th{padding:8px;border-bottom:1px solid #334155;text-align:center}th{color:#94a3b8}.w{overflow-x:auto}</style></head><body><h2>Chart Commander - Key Levels <span style=\"font-size:13px;color:#94a3b8\">levels v2</span></h2><p>Updated: ${et} (page refreshes every 60s)</p><div class=w><table><tr><th>Ticker</th><th>Price</th><th>Level</th><th>VWAP</th><th>PMH</th><th>PML</th><th>PDH</th><th>PDL</th><th>VWAP</th></tr>${rows || '<tr><td colspan=9>No data yet</td></tr>'}</table></div></body></html>`;\nreturn [{ json: { html } }];"
+      },
+      "name": "Build Page",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        224,
+        224
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "={{ $json.html }}",
+        "options": {
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "text/html; charset=utf-8"
+              },
+              {
+                "name": "Cache-Control",
+                "value": "no-store"
+              }
+            ]
+          }
+        }
+      },
+      "name": "Send Page",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        448,
+        224
+      ]
+    }
+  ],
+  "connections": {
+    "TradingView In": {
+      "main": [
+        [
+          {
+            "node": "Save List",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Page Request": {
+      "main": [
+        [
+          {
+            "node": "Build Page",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Page": {
+      "main": [
+        [
+          {
+            "node": "Send Page",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {},
+  "pinData": {}
+}
