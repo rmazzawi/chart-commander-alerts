@@ -1,0 +1,82 @@
+// Uni Flag - SIMPLE (from "Ultimate Trading Playbook" by Andrea "Uni" Webber)
+// Only the book's core setup: trade the FLAG in the direction of the trend.
+//   Trend : price > 8 EMA > 20 SMA (and 20 SMA rising)  -> longs only   (mirror for shorts)
+//   Setup : 2-5 candle pullback after a new high, low holds above the 20 SMA
+//   Entry : price breaks the high of the last pullback candle
+//   Stop  : below the pullback low
+//   Exit  : target = 2 x risk (book: risk $1 to make $2), OR a close below the 8 EMA (book's trail)
+//   Stop moves to break-even once trade is 1 x risk in profit
+// It is a strategy, so TradingView's Strategy Tester shows win rate / profit automatically.
+//@version=5
+strategy("Uni Flag Simple", overlay = true, initial_capital = 10000, default_qty_type = strategy.percent_of_equity, default_qty_value = 100, commission_type = strategy.commission.percent, commission_value = 0.02, process_orders_on_close = false)
+
+allowLong  = input.bool(true, "Take longs")
+allowShort = input.bool(true, "Take shorts")
+rr         = input.float(2.0, "Target (x risk)", step = 0.5)
+useEmaExit = input.bool(true, "Exit on close beyond 8 EMA")
+useBE      = input.bool(true, "Move stop to break-even at 1R")
+sessionOK  = input.session("0945-1530", "Trading hours (intraday, exchange time)")
+
+ema8  = ta.ema(close, 8)
+sma20 = ta.sma(close, 20)
+atr   = ta.atr(14)
+inSession = not timeframe.isintraday or not na(time(timeframe.period, sessionOK))
+
+plot(ema8, "8 EMA", color.new(color.orange, 0))
+plot(sma20, "20 SMA", color.new(color.blue, 0), 2)
+
+// ── Trend ──
+upTrend = close > ema8 and ema8 > sma20 and sma20 > sma20[3]
+dnTrend = close < ema8 and ema8 < sma20 and sma20 < sma20[3]
+
+// ── Pullback (flag) ──
+barsSinceHigh = nz(-ta.highestbars(high, 15), 0)
+barsSinceLow  = nz(-ta.lowestbars(low, 15), 0)
+pbLow  = ta.lowest(low, 5)
+pbHigh = ta.highest(high, 5)
+bullFlag = barsSinceHigh >= 2 and barsSinceHigh <= 5 and pbLow > sma20 - 0.25 * atr and ema8 > sma20 and sma20 > sma20[3]
+bearFlag = barsSinceLow  >= 2 and barsSinceLow  <= 5 and pbHigh < sma20 + 0.25 * atr and ema8 < sma20 and sma20 < sma20[3]
+
+// ── Entry trigger: break of previous candle high/low ──
+flat = strategy.position_size == 0
+longSig  = allowLong  and flat and inSession and bullFlag[1] and high > high[1] and close > ema8
+shortSig = allowShort and flat and inSession and bearFlag[1] and low < low[1] and close < ema8
+
+var float stopLvl = na
+var float tgtLvl  = na
+var float entryPx = na
+
+if longSig
+    entryPx := close
+    stopLvl := pbLow - 0.1 * atr
+    tgtLvl  := entryPx + rr * (entryPx - stopLvl)
+    strategy.entry("Long", strategy.long)
+    alert(syminfo.ticker + " has a Bull Flag (long) on the " + timeframe.period + " chart. Entry " + str.tostring(entryPx, format.mintick) + ", stop " + str.tostring(stopLvl, format.mintick) + ", target " + str.tostring(tgtLvl, format.mintick) + ".", alert.freq_once_per_bar_close)
+if shortSig
+    entryPx := close
+    stopLvl := pbHigh + 0.1 * atr
+    tgtLvl  := entryPx - rr * (stopLvl - entryPx)
+    strategy.entry("Short", strategy.short)
+    alert(syminfo.ticker + " has a Bear Flag (short) on the " + timeframe.period + " chart. Entry " + str.tostring(entryPx, format.mintick) + ", stop " + str.tostring(stopLvl, format.mintick) + ", target " + str.tostring(tgtLvl, format.mintick) + ".", alert.freq_once_per_bar_close)
+
+// ── Manage open trade ──
+if strategy.position_size > 0
+    if useBE and high >= entryPx + (entryPx - stopLvl) and stopLvl < entryPx
+        stopLvl := entryPx
+    strategy.exit("L exit", "Long", stop = stopLvl, limit = tgtLvl)
+    if useEmaExit and close < ema8 and bar_index > strategy.opentrades.entry_bar_index(0)
+        strategy.close("Long", comment = "8EMA")
+if strategy.position_size < 0
+    if useBE and low <= entryPx - (stopLvl - entryPx) and stopLvl > entryPx
+        stopLvl := entryPx
+    strategy.exit("S exit", "Short", stop = stopLvl, limit = tgtLvl)
+    if useEmaExit and close > ema8 and bar_index > strategy.opentrades.entry_bar_index(0)
+        strategy.close("Short", comment = "8EMA")
+
+// Show stop / target only while a trade is open
+inTrade = strategy.position_size != 0
+plot(inTrade ? stopLvl : na, "Stop", color.red, 2, plot.style_linebr)
+plot(inTrade ? tgtLvl : na, "Target", color.green, 2, plot.style_linebr)
+plotshape(longSig, "Buy", shape.triangleup, location.belowbar, color.lime, size = size.small, text = "BUY", textcolor = color.lime)
+plotshape(shortSig, "Sell", shape.triangledown, location.abovebar, color.red, size = size.small, text = "SELL", textcolor = color.red)
+bgcolor(upTrend ? color.new(color.green, 94) : dnTrend ? color.new(color.red, 94) : na)

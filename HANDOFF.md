@@ -99,6 +99,8 @@ Added (all tested, user approved):
 
 - 10/10 LEAN 2m test (analysis/lean.py, costs 0.02% liquid / 0.04% others): best = liquid 6 (SPY QQQ AAPL NVDA MSFT AMZN) + S2/S6 only + stop x2 + 10m trail: good +3.3R (53%), bad -9.7R (46%). Every strategy negative after cost in bad month. Out-of-sample pick-the-winners: -17..-21R / -5..-6R (no persistence). Only AMZN and MSFT >= 0 in both months with wider stops. Conclusion: no 2m version is profitable after costs in both periods.
 
+- 10/13 **Uni Flag Simple** (user's other strategy, built in another chat; now saved as uni_flag/uni_flag_simple.pine). TV backtest CRCL: 2m -29.9% (1454 tr, 31%, PF 0.90, commission load 19.5%) vs 31m +58.5% (89 tr, 53%, PF 2.16). My Python copy (analysis/uni_flag.py) on 9 tickers 5m exports May-Oct, RTH candles: 30m all tickers PF 0.71 (hold overnight) / 0.66 (flat 15:55); 60m PF 0.78 / 0.93; only MSFT/COST(/NVDA) positive. Preliminary - python copy not yet verified against TV trade list; asked user for TV Strategy Tester 'List of trades' exports on 31m for SPY/QQQ/NVDA etc.
+
 ## 7. Open items / next steps
 0. **Status at handoff (10/8):** user was installing CC-Multi V8 (looser pin rule) + dashboard v8 and recreating alerts (webhook on, toast pop-ups off). Confirm it's running ("dashboard v8" title, teal PIN BAR rows with bell). Plan: let V8 run 3–4 weeks, then review the Archive tab live results (incl. PIN BAR alerts: did price break the level, 1R vs stop) before letting anything affect trades.
    - Live 10/7 (to 14:30): 38 closed trades, 53% wins, −1.6R; S5 0/3; S6 61%. Only S1 alert was F puts with a 1-cent stop → candidate test: minimum STOP size (e.g. ≥0.10% of price) — not yet tested.
