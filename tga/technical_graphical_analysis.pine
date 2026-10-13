@@ -153,14 +153,12 @@ if aDir != 0
         hitT = aDir == 1 ? high >= aT : low <= aT
         if hitS or hitT
             res = hitS ? "STOPPED" : "TARGET HIT"
-            box.set_text(hitS ? aRisk : aWin, res)
             alert(syminfo.ticker + " " + (aDir == 1 ? "CALLS" : "PUTS") + " trade: " + res + " at " + str.tostring(hitS ? aS : aT, format.mintick) + ".", alert.freq_once_per_bar)
             aDir := 0
 
 // 1b) 4:00 PM: close any open box, cancel waiting setups
 newDayNY = dayofmonth(time, "America/New_York") != dayofmonth(time[1], "America/New_York")
 if aDir != 0 and timeframe.isintraday and (not inRTH or newDayNY)
-    box.set_text(aRisk, "CLOSED 4PM")
     alert(syminfo.ticker + " " + (aDir == 1 ? "CALLS" : "PUTS") + " trade closed at 4 PM (" + str.tostring(close, format.mintick) + ").", alert.freq_once_per_bar)
     aDir := 0
 if timeframe.isintraday and (not inEntry or newDayNY)
@@ -175,8 +173,6 @@ canS = aDir == 0 or aDir == 1 or (time - aTime) >= replMin * 60000
 trigL = showBoxes and inEntry and canL and not na(pLbar) and bar_index > pLbar and bar_index <= pLbar + trigBars and high >= pLtrig
 trigS = showBoxes and inEntry and canS and not na(pSbar) and bar_index > pSbar and bar_index <= pSbar + trigBars and low <= pStrig and not trigL
 if trigL
-    if aDir != 0
-        box.set_text(aRisk, "REPLACED")
     label.new(pLbar, low[bar_index - pLbar] - lblGap * atr, pLname, style = label.style_label_up, yloc = yloc.price, color = color.new(color.green, 10), textcolor = color.white, size = lblSize)
     aDir  := 1
     aTime := time
@@ -184,18 +180,12 @@ if trigL
     aE    := math.max(open, pLtrig)
     aS    := pLstop
     aT    := aE + rrT * (aE - aS)
-    aWin  := box.new(bar_index, aT, bar_index + 1, aE, border_color = color.new(color.green, 0), bgcolor = color.new(color.green, 75), text = "LONG - " + pLname + "\nTarget " + str.tostring(aT, format.mintick), text_color = color.white, text_size = lblSize)
-    box.set_text_valign(aWin, text.align_top)
-    box.set_text_halign(aWin, text.align_left)
-    aRisk := box.new(bar_index, aE, bar_index + 1, aS, border_color = color.new(color.red, 0), bgcolor = color.new(color.red, 75), text = "Stop " + str.tostring(aS, format.mintick), text_color = color.white, text_size = lblSize)
-    box.set_text_valign(aRisk, text.align_bottom)
-    box.set_text_halign(aRisk, text.align_left)
+    aWin  := box.new(bar_index, aT, bar_index + 1, aE, border_color = color.new(color.green, 0), bgcolor = color.new(color.green, 75))
+    aRisk := box.new(bar_index, aE, bar_index + 1, aS, border_color = color.new(color.red, 0), bgcolor = color.new(color.red, 75))
     alert(syminfo.ticker + " CALLS TRIGGERED (" + pLname + ") at " + str.tostring(aE, format.mintick) + " - stop " + str.tostring(aS, format.mintick) + ", target " + str.tostring(aT, format.mintick) + ".", alert.freq_once_per_bar)
     line.delete(pLline)
     pLbar := na
 if trigS
-    if aDir != 0
-        box.set_text(aRisk, "REPLACED")
     label.new(pSbar, high[bar_index - pSbar] + lblGap * atr, pSname, style = label.style_label_down, yloc = yloc.price, color = color.new(color.red, 10), textcolor = color.white, size = lblSize)
     aDir  := -1
     aTime := time
@@ -203,12 +193,8 @@ if trigS
     aE    := math.min(open, pStrig)
     aS    := pSstop
     aT    := aE - rrT * (aS - aE)
-    aWin  := box.new(bar_index, aE, bar_index + 1, aT, border_color = color.new(color.green, 0), bgcolor = color.new(color.green, 75), text = "SHORT - " + pSname + "\nTarget " + str.tostring(aT, format.mintick), text_color = color.white, text_size = lblSize)
-    box.set_text_valign(aWin, text.align_bottom)
-    box.set_text_halign(aWin, text.align_left)
-    aRisk := box.new(bar_index, aS, bar_index + 1, aE, border_color = color.new(color.red, 0), bgcolor = color.new(color.red, 75), text = "Stop " + str.tostring(aS, format.mintick), text_color = color.white, text_size = lblSize)
-    box.set_text_valign(aRisk, text.align_top)
-    box.set_text_halign(aRisk, text.align_left)
+    aWin  := box.new(bar_index, aE, bar_index + 1, aT, border_color = color.new(color.green, 0), bgcolor = color.new(color.green, 75))
+    aRisk := box.new(bar_index, aS, bar_index + 1, aE, border_color = color.new(color.red, 0), bgcolor = color.new(color.red, 75))
     alert(syminfo.ticker + " PUTS TRIGGERED (" + pSname + ") at " + str.tostring(aE, format.mintick) + " - stop " + str.tostring(aS, format.mintick) + ", target " + str.tostring(aT, format.mintick) + ".", alert.freq_once_per_bar)
     line.delete(pSline)
     pSbar := na
@@ -288,20 +274,14 @@ if dblBot
     label.new(bar_index, low - lblGap * atr, name + " break\nStop " + str.tostring(lo1, format.mintick) + "\nTarget " + str.tostring(tgt, format.mintick), style = label.style_label_up, yloc = yloc.price, color = color.new(color.teal, 0), textcolor = color.white, size = lblSize)
     line.new(bar_index, neckUp, bar_index + 20, neckUp, color = color.teal, style = line.style_dashed)
     if showBoxes and boxDT and (aDir == 0 or aDir == -1 or (time - aTime) >= replMin * 60000) and close > lo1
-        if aDir != 0
-            box.set_text(aRisk, "REPLACED")
         aDir  := 1
         aTime := time
         aBar  := bar_index
         aE    := close
         aS    := lo1
         aT    := tgt
-        aWin  := box.new(bar_index, aT, bar_index + 1, aE, border_color = color.new(color.green, 0), bgcolor = color.new(color.green, 75), text = "LONG - " + name + "\nTarget " + str.tostring(aT, format.mintick), text_color = color.white, text_size = lblSize)
-        box.set_text_valign(aWin, text.align_top)
-        box.set_text_halign(aWin, text.align_left)
-        aRisk := box.new(bar_index, aE, bar_index + 1, aS, border_color = color.new(color.red, 0), bgcolor = color.new(color.red, 75), text = "Stop " + str.tostring(aS, format.mintick), text_color = color.white, text_size = lblSize)
-        box.set_text_valign(aRisk, text.align_bottom)
-        box.set_text_halign(aRisk, text.align_left)
+        aWin  := box.new(bar_index, aT, bar_index + 1, aE, border_color = color.new(color.green, 0), bgcolor = color.new(color.green, 75))
+        aRisk := box.new(bar_index, aE, bar_index + 1, aS, border_color = color.new(color.red, 0), bgcolor = color.new(color.red, 75))
     alert(syminfo.ticker + " has a " + name + " breakout on the " + timeframe.period + " chart. Neckline " + str.tostring(neckUp, format.mintick) + ", target " + str.tostring(tgt, format.mintick) + ".", alert.freq_once_per_bar_close)
     nBot := 0
 if dblTop
@@ -310,20 +290,14 @@ if dblTop
     label.new(bar_index, high + lblGap * atr, name + " break\nStop " + str.tostring(hi1, format.mintick) + "\nTarget " + str.tostring(tgt, format.mintick), style = label.style_label_down, yloc = yloc.price, color = color.new(color.maroon, 0), textcolor = color.white, size = lblSize)
     line.new(bar_index, neckDn, bar_index + 20, neckDn, color = color.maroon, style = line.style_dashed)
     if showBoxes and boxDT and (aDir == 0 or aDir == 1 or (time - aTime) >= replMin * 60000) and close < hi1
-        if aDir != 0
-            box.set_text(aRisk, "REPLACED")
         aDir  := -1
         aTime := time
         aBar  := bar_index
         aE    := close
         aS    := hi1
         aT    := tgt
-        aWin  := box.new(bar_index, aE, bar_index + 1, aT, border_color = color.new(color.green, 0), bgcolor = color.new(color.green, 75), text = "SHORT - " + name + "\nTarget " + str.tostring(aT, format.mintick), text_color = color.white, text_size = lblSize)
-        box.set_text_valign(aWin, text.align_bottom)
-        box.set_text_halign(aWin, text.align_left)
-        aRisk := box.new(bar_index, aS, bar_index + 1, aE, border_color = color.new(color.red, 0), bgcolor = color.new(color.red, 75), text = "Stop " + str.tostring(aS, format.mintick), text_color = color.white, text_size = lblSize)
-        box.set_text_valign(aRisk, text.align_top)
-        box.set_text_halign(aRisk, text.align_left)
+        aWin  := box.new(bar_index, aE, bar_index + 1, aT, border_color = color.new(color.green, 0), bgcolor = color.new(color.green, 75))
+        aRisk := box.new(bar_index, aS, bar_index + 1, aE, border_color = color.new(color.red, 0), bgcolor = color.new(color.red, 75))
     alert(syminfo.ticker + " has a " + name + " breakdown on the " + timeframe.period + " chart. Neckline " + str.tostring(neckDn, format.mintick) + ", target " + str.tostring(tgt, format.mintick) + ".", alert.freq_once_per_bar_close)
     nTop := 0
 
