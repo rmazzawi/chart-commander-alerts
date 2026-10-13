@@ -31,6 +31,7 @@ bbrSess = input.session("0935-1530", "BB Reversal entry hours (New York)", group
 showBoxes = input.bool(true, "Show long / short boxes (green = profit, red = failure)", group = grpX)
 showLines = input.bool(false, "Also draw the old profit / failure lines", group = grpX)
 lblSizeIn = input.string("large", "Label text size", options = ["tiny", "small", "normal", "large", "huge"], group = grpX)
+lblGap = input.float(3.0, "Label distance from the candle (x ATR, 0 = touching)", minval = 0, step = 0.5, group = grpX)
 lblSize = lblSizeIn == "tiny" ? size.tiny : lblSizeIn == "small" ? size.small : lblSizeIn == "normal" ? size.normal : lblSizeIn == "huge" ? size.huge : size.large
 
 atr = ta.atr(14)
@@ -57,12 +58,12 @@ boProfS = rLo - (rHi - rLo)
 boUp := boUp and close > boFailL and (boProfL - close) >= minRR * (close - boFailL)
 boDn := boDn and close < boFailS and (close - boProfS) >= minRR * (boFailS - close)
 
-drawTrade(string name, bool isLong, float entry, float fail, float profit) =>
+drawTrade(string name, bool isLong, float entry, float fail, float profit, string short = "") =>
     if showLines
         line.new(bar_index, fail, bar_index + 15, fail, color = color.red, width = 2)
         line.new(bar_index, profit, bar_index + 15, profit, color = color.green, width = 2, style = line.style_dashed)
-    txt = name
-    label.new(bar_index, isLong ? low : high, txt, yloc = isLong ? yloc.belowbar : yloc.abovebar, style = isLong ? label.style_label_up : label.style_label_down, color = isLong ? color.new(color.green, 10) : color.new(color.red, 10), textcolor = color.white, size = lblSize)
+    txt = short != "" ? short : name
+    label.new(bar_index, isLong ? low - lblGap * atr : high + lblGap * atr, txt, yloc = yloc.price, style = isLong ? label.style_label_up : label.style_label_down, color = isLong ? color.new(color.green, 10) : color.new(color.red, 10), textcolor = color.white, size = lblSize)
     alert(syminfo.ticker + " has a Farley " + name + " on the " + timeframe.period + " chart. Entry " + str.tostring(entry, format.mintick) + ", profit target " + str.tostring(profit, format.mintick) + ", failure target " + str.tostring(fail, format.mintick) + ".", alert.freq_once_per_bar_close)
 
 if boUp
@@ -107,9 +108,9 @@ convLong  := convLong and not convLong[1] and not boUp
 convShort := convShort and not convShort[1] and not boDn
 
 if convLong
-    drawTrade("Convergence Bounce (" + str.tostring(supHits) + " levels)", true, close, low - zone, swHi)
+    drawTrade("Convergence Bounce (" + str.tostring(supHits) + " levels)", true, close, low - zone, swHi, "Bounce " + str.tostring(supHits))
 if convShort
-    drawTrade("Convergence Rejection (" + str.tostring(resHits) + " levels)", false, close, high + zone, swLo)
+    drawTrade("Convergence Rejection (" + str.tostring(resHits) + " levels)", false, close, high + zone, swLo, "Reject " + str.tostring(resHits))
 
 // ───────── 3) BB Reversal: candle pokes outside the Bollinger Band, next candle closes back inside (colored the other way),
 // entry when price breaks that candle within 2 candles; stop past the 3-candle extreme; target = middle band (min reward/risk)
@@ -155,10 +156,10 @@ if not na(rvS_bar) and bar_index > rvS_bar + 2
 if not na(rvL_bar) and bar_index > rvL_bar + 2
     rvL_bar := na
 if bbrS
-    label.new(bar_index, high, "BB Reversal", yloc = yloc.abovebar, style = label.style_label_down, color = color.new(color.red, 10), textcolor = color.white, size = lblSize)
+    label.new(bar_index, high + lblGap * atr, "BB Reversal", yloc = yloc.price, style = label.style_label_down, color = color.new(color.red, 10), textcolor = color.white, size = lblSize)
     alert(syminfo.ticker + " BB Reversal PUTS on the " + timeframe.period + " chart. Entry " + str.tostring(bbrE, format.mintick) + ", stop " + str.tostring(bbrF, format.mintick) + ", target " + str.tostring(bbrP, format.mintick) + ".", alert.freq_once_per_bar)
 if bbrL
-    label.new(bar_index, low, "BB Reversal", yloc = yloc.belowbar, style = label.style_label_up, color = color.new(color.green, 10), textcolor = color.white, size = lblSize)
+    label.new(bar_index, low - lblGap * atr, "BB Reversal", yloc = yloc.price, style = label.style_label_up, color = color.new(color.green, 10), textcolor = color.white, size = lblSize)
     alert(syminfo.ticker + " BB Reversal CALLS on the " + timeframe.period + " chart. Entry " + str.tostring(bbrE, format.mintick) + ", stop " + str.tostring(bbrF, format.mintick) + ", target " + str.tostring(bbrP, format.mintick) + ".", alert.freq_once_per_bar)
 
 // ───────── Trade boxes (no text): green = entry -> profit target, red = entry -> failure target ─────────
