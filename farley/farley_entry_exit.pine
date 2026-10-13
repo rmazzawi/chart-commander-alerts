@@ -26,6 +26,7 @@ grpX = "Trade boxes"
 minRR     = input.float(1.5, "Min reward / risk (green must be at least this x red, else no trade)", minval = 1.0, step = 0.25, group = grpX)
 grpV = "BB Reversal (catch the turns) - TEST: ~36% wins, works best on AMD"
 useBBR  = input.bool(false, "BB Reversal signals (poke outside the band -> close back inside -> break)", group = grpV)
+bbrTks  = input.string("AMD", "BB Reversal only on these tickers (comma list, empty = all)", group = grpV)
 bbrSess = input.session("0935-1530", "BB Reversal entry hours (New York)", group = grpV)
 showBoxes = input.bool(true, "Show long / short boxes (green = profit, red = failure)", group = grpX)
 showLines = input.bool(false, "Also draw the old profit / failure lines", group = grpX)
@@ -112,7 +113,7 @@ if convShort
 
 // ───────── 3) BB Reversal: candle pokes outside the Bollinger Band, next candle closes back inside (colored the other way),
 // entry when price breaks that candle within 2 candles; stop past the 3-candle extreme; target = middle band (min reward/risk)
-bbrHours = not na(time(timeframe.period, bbrSess, "America/New_York"))
+bbrHours = not na(time(timeframe.period, bbrSess, "America/New_York")) and (str.length(str.trim(bbrTks)) == 0 or str.contains("," + str.replace_all(str.upper(bbrTks), " ", "") + ",", "," + syminfo.ticker + ","))
 var float rvS_trig = na
 var float rvS_stop = na
 var int   rvS_bar  = na
