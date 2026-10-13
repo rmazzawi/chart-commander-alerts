@@ -25,6 +25,8 @@ showBB   = input.bool(true, "Show Bollinger Bands + 20/50 MA", group = grpC)
 grpX = "Trade boxes"
 showBoxes = input.bool(true, "Show long / short boxes (green = profit, red = failure)", group = grpX)
 showLines = input.bool(false, "Also draw the old profit / failure lines", group = grpX)
+lblSizeIn = input.string("large", "Label text size", options = ["tiny", "small", "normal", "large", "huge"], group = grpX)
+lblSize = lblSizeIn == "tiny" ? size.tiny : lblSizeIn == "small" ? size.small : lblSizeIn == "normal" ? size.normal : lblSizeIn == "huge" ? size.huge : size.large
 
 atr = ta.atr(14)
 ma20 = ta.sma(close, 20)
@@ -48,7 +50,7 @@ drawTrade(string name, bool isLong, float entry, float fail, float profit) =>
         line.new(bar_index, fail, bar_index + 15, fail, color = color.red, width = 2)
         line.new(bar_index, profit, bar_index + 15, profit, color = color.green, width = 2, style = line.style_dashed)
     txt = name + "\nProfit tgt " + str.tostring(profit, format.mintick) + "\nFailure tgt " + str.tostring(fail, format.mintick)
-    label.new(bar_index, isLong ? low : high, txt, yloc = isLong ? yloc.belowbar : yloc.abovebar, style = isLong ? label.style_label_up : label.style_label_down, color = isLong ? color.new(color.green, 10) : color.new(color.red, 10), textcolor = color.white, size = size.small)
+    label.new(bar_index, isLong ? low : high, txt, yloc = isLong ? yloc.belowbar : yloc.abovebar, style = isLong ? label.style_label_up : label.style_label_down, color = isLong ? color.new(color.green, 10) : color.new(color.red, 10), textcolor = color.white, size = lblSize)
     alert(syminfo.ticker + " has a Farley " + name + " on the " + timeframe.period + " chart. Entry " + str.tostring(entry, format.mintick) + ", profit target " + str.tostring(profit, format.mintick) + ", failure target " + str.tostring(fail, format.mintick) + ".", alert.freq_once_per_bar_close)
 
 if boUp
