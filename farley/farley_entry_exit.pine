@@ -14,7 +14,7 @@ boxATR   = input.float(3.0, "Max range height (x ATR)", step = 0.5, group = grpR
 volMult  = input.float(1.5, "Breakout volume vs average (x)", step = 0.1, group = grpR)
 
 grpC = "Convergence zone"
-useConv  = input.bool(true, "Convergence bounce/rejection signals", group = grpC)
+useConv  = input.bool(false, "Convergence bounce/rejection signals (TEST: loses after costs, off by default)", group = grpC)
 swingLen = input.int(50, "Swing for Fibonacci grid (bars)", group = grpC)
 zoneATR  = input.float(0.5, "Zone width (x ATR)", step = 0.1, group = grpC)
 minHits  = input.int(3, "Min levels stacked in zone", minval = 2, maxval = 6, group = grpC)
@@ -47,6 +47,28 @@ plot(showBB ? ma50 : na, "50 MA", color.new(color.blue, 20))
 plot(showBB ? bbU : na, "BB upper", color.new(color.red, 50))
 plot(showBB ? bbL : na, "BB lower", color.new(color.red, 50))
 
+// ───────── Trade boxes (no text): green = entry -> profit target, red = entry -> failure target ─────────
+// ONE TRADE AT A TIME: while a box is open, new signals are ignored until target, stop or end of day
+var int   tDir  = 0
+var int   tBar  = na
+var float tE    = na
+var float tF    = na
+var float tP    = na
+var box   bWin  = na
+var box   bRisk = na
+newDay = dayofmonth(time, "America/New_York") != dayofmonth(time[1], "America/New_York")
+boxRTH = not na(time(timeframe.period, "0930-1600", "America/New_York")) or not timeframe.isintraday
+// manage the open box: stretch until profit or failure target is hit, or 4 PM
+if tDir != 0
+    if newDay or not boxRTH
+        tDir := 0
+    else
+        box.set_right(bWin, bar_index + 1)
+        box.set_right(bRisk, bar_index + 1)
+        if bar_index > tBar and (tDir == 1 ? (low <= tF or high >= tP) : (high >= tF or low <= tP))
+            tDir := 0
+busy = showBoxes and tDir != 0
+
 // ───────── 1) Range -> Trend ─────────
 rHi = ta.highest(high, boxLen)[1]
 rLo = ta.lowest(low, boxLen)[1]
@@ -59,8 +81,8 @@ boFailL = rHi - 0.2 * atr
 boFailS = rLo + 0.2 * atr
 boProfL = rHi + (rHi - rLo)
 boProfS = rLo - (rHi - rLo)
-boUp := boUp and close > boFailL and (boProfL - close) >= minRR * (close - boFailL)
-boDn := boDn and close < boFailS and (close - boProfS) >= minRR * (boFailS - close)
+boUp := boUp and not busy and close > boFailL and (boProfL - close) >= minRR * (close - boFailL)
+boDn := boDn and not busy and close < boFailS and (close - boProfS) >= minRR * (boFailS - close)
 
 drawTrade(string name, bool isLong, float entry, float fail, float profit, string short = "") =>
     if showLines
@@ -108,8 +130,8 @@ convLong  = useConv and upLeg and supHits >= minHits and close > open and close 
 convShort = useConv and not upLeg and resHits >= minHits and close < open and close < high - (high - low) * 0.5
 convLong  := convLong and (swHi - close) >= minRR * (close - (low - zone))
 convShort := convShort and (close - swLo) >= minRR * ((high + zone) - close)
-convLong  := convLong and not convLong[1] and not boUp
-convShort := convShort and not convShort[1] and not boDn
+convLong  := convLong and not convLong[1] and not boUp and not busy
+convShort := convShort and not convShort[1] and not boDn and not busy
 
 if convLong
     drawTrade("Convergence Bounce (" + str.tostring(supHits) + " levels)", true, close, low - zone, swHi, "Bounce " + str.tostring(supHits))
@@ -159,6 +181,8 @@ if not na(rvS_bar) and bar_index > rvS_bar + 2
     rvS_bar := na
 if not na(rvL_bar) and bar_index > rvL_bar + 2
     rvL_bar := na
+bbrS := bbrS and not busy
+bbrL := bbrL and not busy and not bbrS
 if bbrS
     label.new(bar_index, high + lblGap * atr, "BB Reversal", yloc = yloc.price, style = label.style_label_down, color = color.new(color.red, 10), textcolor = color.white, size = lblSize)
     alert(syminfo.ticker + " BB Reversal PUTS on the " + timeframe.period + " chart. Entry " + str.tostring(bbrE, format.mintick) + ", stop " + str.tostring(bbrF, format.mintick) + ", target " + str.tostring(bbrP, format.mintick) + ".", alert.freq_once_per_bar)
@@ -215,6 +239,8 @@ if inRTHd
                 drE := close
                 drF := dLo - 0.1 * atr
                 drP := dVW
+drS := drS and not busy
+drL := drL and not busy
 if drS
     label.new(bar_index, high + lblGap * atr, "Day High Rev", yloc = yloc.price, style = label.style_label_down, color = color.new(color.red, 10), textcolor = color.white, size = lblSize)
     alert(syminfo.ticker + " Day High Reversal PUTS on the " + timeframe.period + " chart. Entry " + str.tostring(drE, format.mintick) + ", stop " + str.tostring(drF, format.mintick) + ", target VWAP " + str.tostring(drP, format.mintick) + ".", alert.freq_once_per_bar_close)
@@ -222,25 +248,7 @@ if drL
     label.new(bar_index, low - lblGap * atr, "Day Low Rev", yloc = yloc.price, style = label.style_label_up, color = color.new(color.green, 10), textcolor = color.white, size = lblSize)
     alert(syminfo.ticker + " Day Low Reversal CALLS on the " + timeframe.period + " chart. Entry " + str.tostring(drE, format.mintick) + ", stop " + str.tostring(drF, format.mintick) + ", target VWAP " + str.tostring(drP, format.mintick) + ".", alert.freq_once_per_bar_close)
 
-// ───────── Trade boxes (no text): green = entry -> profit target, red = entry -> failure target ─────────
-var int   tDir  = 0
-var int   tBar  = na
-var float tE    = na
-var float tF    = na
-var float tP    = na
-var box   bWin  = na
-var box   bRisk = na
-newDay = dayofmonth(time, "America/New_York") != dayofmonth(time[1], "America/New_York")
-// manage the open box: stretch until profit or failure target is hit, or the day ends
-if tDir != 0
-    if newDay
-        tDir := 0
-    else
-        box.set_right(bWin, bar_index + 1)
-        box.set_right(bRisk, bar_index + 1)
-        if bar_index > tBar and (tDir == 1 ? (low <= tF or high >= tP) : (high >= tF or low <= tP))
-            tDir := 0
-// open a new box on a signal (a new signal replaces the old box)
+// open a new box on a signal (only when no box is open - signals are already blocked while busy)
 nDir = boUp or convLong ? 1 : boDn or convShort ? -1 : bbrL ? 1 : bbrS ? -1 : drL ? 1 : drS ? -1 : 0
 nE = bbrL or bbrS ? bbrE : close
 if showBoxes and nDir != 0
