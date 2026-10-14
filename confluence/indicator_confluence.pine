@@ -17,7 +17,9 @@ entSess  = input.session("0930-1545", "New entries only in (New York)", group = 
 lblGap   = input.float(2.0, "Label distance from the candle (x ATR)", minval = 0, step = 0.5, group = grpX)
 maxBox   = input.float(1.5, "Max box size: skip trades whose stop is more than N x ATR away (0 = off; tested: 1.5 best, use 0 on IWM / QQQ)", minval = 0, step = 0.25, group = grpX)
 showSkip = input.bool(true, "Show a small grey 'skip' label when a signal is skipped because the box is too big", group = grpX)
+lblSzIn  = input.string("large", "Label text size", options = ["small", "normal", "large", "huge"], group = grpX)
 showFlip = input.bool(false, "Show orange x on every SAR flip (old exit hint)", group = grpX)
+lblSz = lblSzIn == "small" ? size.small : lblSzIn == "normal" ? size.normal : lblSzIn == "huge" ? size.huge : size.large
 dashSize = dashSizeIn == "tiny" ? size.tiny : dashSizeIn == "small" ? size.small : dashSizeIn == "normal" ? size.normal : dashSizeIn == "huge" ? size.huge : size.large
 
 // 1) ADX / DMI: +DI above -DI = bullish (only counted when ADX >= adxMin)
@@ -96,7 +98,7 @@ if cDir != 0
     if out4 or hit
         float px = out4 ? close[1] : cS
         float rr = (px - cE) * cDir / cR
-        label.new(bar_index, cDir == 1 ? high + lblGap * atrC : low - lblGap * atrC, "SELL NOW - " + (cDir == 1 ? "close CALLS" : "close PUTS") + "\n" + (rr >= 0 ? "+" : "") + str.tostring(rr, "#.0") + "R" + (out4 ? " (4 PM)" : ""), yloc = yloc.price, style = cDir == 1 ? label.style_label_down : label.style_label_up, color = rr >= 0 ? color.new(color.green, 0) : color.new(color.gray, 0), textcolor = color.white, size = size.normal)
+        label.new(bar_index, cDir == 1 ? high + lblGap * atrC : low - lblGap * atrC, "SELL NOW - " + (cDir == 1 ? "close CALLS" : "close PUTS") + "\n" + (rr >= 0 ? "+" : "") + str.tostring(rr, "#.0") + "R" + (out4 ? " (4 PM)" : ""), yloc = yloc.price, style = cDir == 1 ? label.style_label_down : label.style_label_up, color = rr >= 0 ? color.new(color.green, 0) : color.new(color.gray, 0), textcolor = color.white, size = lblSz)
         alert(syminfo.ticker + " Confluence: SELL NOW - close your " + (cDir == 1 ? "CALLS" : "PUTS") + " at about " + str.tostring(px, format.mintick) + (out4 ? " (4 PM)" : " (stop touched)") + ", result " + str.tostring(rr, "#.0") + "R.", alert.freq_once_per_bar)
         cDir := 0
     else
@@ -124,20 +126,19 @@ if takeL or takeS
     cStopLn := line.new(bar_index, cS, bar_index + 1, cS, color = color.red, width = 3)
     cEntLn  := line.new(bar_index, cE, bar_index + 1, cE, color = color.white, width = 1, style = line.style_dashed)
 if takeL
-    label.new(bar_index, low - lblGap * atrC, "BUY CALLS now\nstop " + str.tostring(sar, format.mintick), yloc = yloc.price, style = label.style_label_up, color = color.new(color.green, 0), textcolor = color.white, size = size.normal)
+    label.new(bar_index, low - lblGap * atrC, "BUY CALLS now\nstop " + str.tostring(sar, format.mintick), yloc = yloc.price, style = label.style_label_up, color = color.new(color.green, 0), textcolor = color.white, size = lblSz)
     alert(syminfo.ticker + " Confluence: BUY CALLS now (" + str.tostring(bullVotes) + "/10) at about " + str.tostring(close, format.mintick) + ". Stop " + str.tostring(sar, format.mintick) + " - it follows the SAR dots. Hold until the SELL NOW alert.", alert.freq_once_per_bar_close)
 if takeS
-    label.new(bar_index, high + lblGap * atrC, "BUY PUTS now\nstop " + str.tostring(sar, format.mintick), yloc = yloc.price, style = label.style_label_down, color = color.new(color.red, 0), textcolor = color.white, size = size.normal)
+    label.new(bar_index, high + lblGap * atrC, "BUY PUTS now\nstop " + str.tostring(sar, format.mintick), yloc = yloc.price, style = label.style_label_down, color = color.new(color.red, 0), textcolor = color.white, size = lblSz)
     alert(syminfo.ticker + " Confluence: BUY PUTS now (" + str.tostring(bearVotes) + "/10) at about " + str.tostring(close, format.mintick) + ". Stop " + str.tostring(sar, format.mintick) + " - it follows the SAR dots. Hold until the SELL NOW alert.", alert.freq_once_per_bar_close)
 // skipped signals (box too big): small grey label, no alert
 if showBox and showSkip and cDir == 0 and inEnt and not boxOK and ((longSig and close > sar) or (shortSig and close < sar)) and not (takeL or takeS)
-    label.new(bar_index, longSig ? low - lblGap * atrC : high + lblGap * atrC, "skip - box too big", yloc = yloc.price, style = longSig ? label.style_label_up : label.style_label_down, color = color.new(color.gray, 40), textcolor = color.white, size = size.small)
+    label.new(bar_index, longSig ? low - lblGap * atrC : high + lblGap * atrC, "skip - box too big", yloc = yloc.price, style = longSig ? label.style_label_up : label.style_label_down, color = color.new(color.gray, 40), textcolor = color.white, size = lblSz == size.huge ? size.large : size.normal)
 // boxes off: just show the raw signals
 if not showBox and longSig
-    label.new(bar_index, low - lblGap * atrC, "BUY " + str.tostring(bullVotes) + "/10", yloc = yloc.price, style = label.style_label_up, color = color.new(color.green, 10), textcolor = color.white, size = size.normal)
+    label.new(bar_index, low - lblGap * atrC, "BUY " + str.tostring(bullVotes) + "/10", yloc = yloc.price, style = label.style_label_up, color = color.new(color.green, 10), textcolor = color.white, size = lblSz)
 if not showBox and shortSig
-    label.new(bar_index, high + lblGap * atrC, "SELL " + str.tostring(bearVotes) + "/10", yloc = yloc.price, style = label.style_label_down, color = color.new(color.red, 10), textcolor = color.white, size = size.normal)
-bgcolor(cDir == 1 ? color.new(color.green, 92) : cDir == -1 ? color.new(color.red, 92) : na, title = "In a trade")
+    label.new(bar_index, high + lblGap * atrC, "SELL " + str.tostring(bearVotes) + "/10", yloc = yloc.price, style = label.style_label_down, color = color.new(color.red, 10), textcolor = color.white, size = lblSz)
 
 // Exit hint: SAR flips against the trade
 plotshape(showFlip and ta.cross(close, sar), "SAR flip (exit)", shape.xcross, location.abovebar, color.new(color.orange, 0), size = size.tiny)
