@@ -17,6 +17,10 @@ Last updated: 2026-10-06. Repo: `rmazzawi/chart-commander-alerts`, branch **`cla
 5. **Test every change in Python on all tickers first; show before/after tables** (both periods: Jul 27–Sep 3 = "good month", Sep 4–Oct 2 = "bad month") before sending a script.
 6. Chart shows **boxes only**; details go to n8n alerts.
 7. Be honest about weak results; the user values that.
+8. **Whenever you hand off or end a session, give the user the GitHub links** (branch + HANDOFF.md) so a new session can find where we are:
+   - Branch: https://github.com/rmazzawi/chart-commander-alerts/tree/claude/gifted-noether-f72n1r
+   - This file: https://github.com/rmazzawi/chart-commander-alerts/blob/claude/gifted-noether-f72n1r/HANDOFF.md
+   Keep this HANDOFF.md updated at the end of each session.
 
 ## 3. Current live versions
 | Piece | File | Notes |
