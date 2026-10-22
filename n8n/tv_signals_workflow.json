@@ -6,8 +6,7 @@
         "httpMethod": "POST",
         "path": "tv-signal",
         "options": {
-          "rawBody": true,
-          "responseCode": 200
+          "rawBody": true
         },
         "responseMode": "onReceived"
       },
