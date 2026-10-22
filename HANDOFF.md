@@ -79,3 +79,8 @@ Added (all tested, user approved):
 2. Candidate tunings to test then (one at a time): minimum move size (T1 ≥0.3–0.4% / min stop), shorter ticker list (liquid 0DTE names), no new entries after 2:30–3:00, minimum entry RVOL (~0.5), hide POSSIBLE rows from the dashboard (keep in log) — user hasn't decided.
 3. User was offered: dashboard sound for BUY/SELL alerts (declined for now).
 4. Trend-day research could improve with more history (3–6 months).
+
+## 8. Update 2026-10-22
+- User now runs **CC-Multi v8.1** (925 lines, saved as `CC-Multi_v8.1.pine`, made in another session; adds PIN BAR alerts and a separate "CC Levels Scanner" alert) and n8n **v9 → v10** (`n8n/tv_signals_workflow.json`).
+- Problem found: TradingView Alerts Log showed **49% of webhooks failed** (mostly "request took too long and timed out"); bursts of 16+ alerts in 5 s delivered only 2%. SBUX BUY CALLS 09:50 was lost this way.
+- v10 fix (n8n only): workflow settings stop saving successful executions (`saveDataSuccessExecution: none`, no progress/manual saves) and the webhook explicitly answers on receipt. Next if still failing: mute POSSIBLE alerts (~42% of traffic) and/or check the Contabo server's CPU/RAM and n8n execution pruning.
